@@ -4,6 +4,7 @@ import { AuthProvider } from "@/components/auth-provider";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 export const metadata: Metadata = {
   title: "Notebook Scuola — Trova, condividi, studia",
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <main>{children}</main>
           <Footer />
           <Analytics />
+          <SpeedInsights />
         </AuthProvider>
       </body>
     </html>
