@@ -153,14 +153,20 @@ export default function EditNotebookPage() {
         updated_at: new Date().toISOString(),
       };
 
-      const { error: updateError } = await supabase
+      const { data: updatedNotebook, error: updateError } = await supabase
         .from("notebooks")
         .update(updateValues)
         .eq("id", id)
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .select("id")
+        .maybeSingle();
 
       if (updateError) throw updateError;
+      if (!updatedNotebook) {
+        throw new Error("Nessuna modifica confermata. Verifica di aver effettuato l'accesso con l'account che ha pubblicato questo notebook. Le immagini esistenti non sono state rimosse.");
+      }
 
+      // Only remove old files after Supabase confirms the database update.
       if (removedImages.length > 0) {
         const { error: removeError } = await supabase.storage.from("notebook-images").remove(removedImages);
         if (removeError) console.warn("Alcune immagini rimosse dal database ma non dallo storage:", removeError.message);
