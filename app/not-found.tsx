@@ -1,0 +1,2 @@
+import Link from "next/link";
+export default function NotFound(){return <div className="container page"><div className="panel auth-wrap"><span className="eyebrow">404 · Pagina non trovata</span><h1>Qui non c'è nulla.</h1><p style={{color:"var(--muted)"}}>La pagina che stai cercando potrebbe essere stata spostata o rimossa.</p><Link className="button button-primary" href="/">Torna alla raccolta</Link></div></div>}
