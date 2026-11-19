@@ -45,7 +45,9 @@ export default function ProfileSettingsPage() {
       }
       const row = data as ProfileRow | null;
       setDisplayName(row?.display_name ?? String(user.user_metadata?.display_name ?? "Studente"));
-      setUsername(row?.username ?? "");
+      // If the public profile row is missing, propose a stable username.
+      // The save action below uses an upsert, so this can create the own row safely.
+      setUsername(row?.username ?? `studente_${user.id.replace(/-/g, "").slice(0, 8)}`);
       setLoadingProfile(false);
     }
     void loadProfile();
@@ -68,25 +70,49 @@ export default function ProfileSettingsPage() {
     }
 
     setProfileBusy(true);
-    const { error } = await supabase
-      .from("profiles")
-      .update({ display_name: displayName.trim(), username: cleanUsername })
-      .eq("id", user.id);
-    if (error) {
-      setProfileBusy(false);
-      setProfileError(error.message.toLowerCase().includes("duplicate")
-        ? "Questo nome utente è già utilizzato. Scegline un altro."
-        : `Non è stato possibile salvare il profilo: ${error.message}`);
-      return;
-    }
+    try {
+      // Upsert covers both cases: an existing profile row is updated, while
+      // a missing row for the signed-in user is created. RLS restricts id to auth.uid().
+      const { data: savedProfile, error } = await supabase
+        .from("profiles")
+        .upsert(
+          { id: user.id, display_name: displayName.trim(), username: cleanUsername },
+          { onConflict: "id" },
+        )
+        .select("id, display_name, username")
+        .single();
 
-    const { error: metadataError } = await supabase.auth.updateUser({ data: { display_name: displayName.trim() } });
-    updateDisplayName(displayName.trim());
-    setProfileBusy(false);
-    setProfileMessage(metadataError
-      ? "Profilo aggiornato. Il nome nel menu potrebbe aggiornarsi al prossimo accesso."
-      : "Profilo aggiornato correttamente.");
-    setUsername(cleanUsername);
+      if (error) {
+        const message = error.message.toLowerCase();
+        if (error.code === "23505" || message.includes("duplicate") || message.includes("unique")) {
+          throw new Error("Questo nome utente è già utilizzato. Scegline un altro.");
+        }
+        if (error.code === "42501" || message.includes("row-level security") || message.includes("permission denied")) {
+          throw new Error("Supabase non consente ancora di creare il profilo. Esegui una sola volta lo script supabase/profile-settings-insert-policy.sql e riprova.");
+        }
+        if (message.includes("username") && (message.includes("column") || message.includes("schema cache"))) {
+          throw new Error("La colonna username non risulta disponibile in Supabase. Controlla la migrazione del profilo prima di riprovare.");
+        }
+        throw new Error(error.message);
+      }
+      if (!savedProfile) {
+        throw new Error("Supabase non ha confermato il salvataggio del profilo. Riprova.");
+      }
+
+      const { error: metadataError } = await supabase.auth.updateUser({ data: { display_name: displayName.trim() } });
+      updateDisplayName(displayName.trim());
+      setUsername(savedProfile.username);
+      setProfileMessage(metadataError
+        ? "Nome utente e profilo salvati. Il nome nel menu potrebbe aggiornarsi al prossimo accesso."
+        : "Profilo e nome utente aggiornati correttamente.");
+      if (metadataError) {
+        console.warn("Il profilo pubblico è stato salvato, ma non è stato aggiornato il metadato di autenticazione:", metadataError.message);
+      }
+    } catch (caught) {
+      setProfileError(caught instanceof Error ? caught.message : "Non è stato possibile salvare il profilo.");
+    } finally {
+      setProfileBusy(false);
+    }
   }
 
   async function verifyCurrentPassword(passwordToCheck: string) {
