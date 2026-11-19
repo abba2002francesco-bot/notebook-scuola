@@ -24,6 +24,7 @@ export default function HomePage() {
   const [order, setOrder] = useState("recenti");
   const [view, setView] = useState("tutti");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [usefulCounts, setUsefulCounts] = useState<Record<string, number>>({});
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
 
@@ -37,14 +38,62 @@ export default function HomePage() {
     async function load() {
       if (!supabase) { setLoading(false); return; }
       setLoading(true);
-      const [notebookResult, votesResult, commentsResult, favoritesResult] = await Promise.all([
-        supabase.from("notebooks").select("*, profiles(display_name, username)").order("created_at", { ascending: false }).limit(150),
+      setLoadError("");
+
+      // Load notebook rows independently from profile metadata. An embedded
+      // PostgREST relationship error must never make existing notebooks vanish.
+      const notebookResult = await supabase
+        .from("notebooks")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(150);
+
+      if (notebookResult.error) {
+        console.error("Errore caricamento notebook:", notebookResult.error);
+        setLoadError(`Non riesco a caricare i notebook: ${notebookResult.error.message}`);
+        setNotebooks([]);
+        setLoading(false);
+        return;
+      }
+
+      const notebookRows = notebookResult.data ?? [];
+      const authorIds = Array.from(new Set(notebookRows.map((row) => row.user_id).filter(Boolean)));
+      const profileMap = new Map<string, { display_name: string | null; username?: string | null }>();
+
+      if (authorIds.length > 0) {
+        const profileResult = await supabase
+          .from("profiles")
+          .select("id, display_name, username")
+          .in("id", authorIds);
+
+        if (profileResult.error) {
+          // Fallback: names are optional; show every notebook even if the
+          // username column is not yet available through the Data API.
+          console.warn("Metadati profilo non disponibili:", profileResult.error.message);
+          const fallbackProfiles = await supabase
+            .from("profiles")
+            .select("id, display_name")
+            .in("id", authorIds);
+          for (const profile of fallbackProfiles.data ?? []) {
+            profileMap.set(profile.id, { display_name: profile.display_name });
+          }
+        } else {
+          for (const profile of profileResult.data ?? []) {
+            profileMap.set(profile.id, { display_name: profile.display_name, username: profile.username });
+          }
+        }
+      }
+
+      setNotebooks(notebookRows.map((row) => ({
+        ...row,
+        profiles: profileMap.get(row.user_id) ?? null,
+      })) as Notebook[]);
+
+      const [votesResult, commentsResult, favoritesResult] = await Promise.all([
         supabase.from("notebook_votes").select("notebook_id"),
         supabase.from("notebook_comments").select("notebook_id"),
         user ? supabase.from("notebook_favorites").select("notebook_id").eq("user_id", user.id) : Promise.resolve({ data: [] as { notebook_id: string }[] }),
       ]);
-      if (notebookResult.error) console.error(notebookResult.error.message);
-      setNotebooks((notebookResult.data ?? []) as Notebook[]);
       const useful: Record<string, number> = {};
       (votesResult.data ?? []).forEach((v) => { useful[v.notebook_id] = (useful[v.notebook_id] ?? 0) + 1; });
       const comments: Record<string, number> = {};
@@ -120,7 +169,9 @@ export default function HomePage() {
           <div className="grid">
             {!isSupabaseConfigured ? (
               <div className="empty-state"><BookOpen size={30} /><h3>Collega il database per iniziare</h3><p>Segui il file README incluso nel progetto: in pochi passaggi il sito sarà collegato a Supabase.</p></div>
-            ) : loading ? <div className="empty-state"><p>Sto caricando i notebook…</p></div> : visible.length === 0 ? (
+            ) : loading ? <div className="empty-state"><p>Sto caricando i notebook…</p></div> : loadError ? (
+              <div className="empty-state"><BookOpen size={30} /><h3>Non riesco a leggere i notebook</h3><p>{loadError}</p><p>Le pubblicazioni non vengono cancellate da questo errore: riprova tra poco o contatta l'amministratore del sito.</p></div>
+            ) : visible.length === 0 ? (
               <div className="empty-state"><Search size={30} /><h3>{view === "miei" ? "Non hai ancora condiviso notebook" : view === "salvati" ? "Non hai ancora salvato notebook" : "Nessun notebook trovato"}</h3><p>{view === "miei" || view === "salvati" ? "Quando aggiungerai o salverai una risorsa, la troverai qui." : "Prova a cambiare la ricerca o i filtri. Puoi anche essere il primo a condividere una risorsa."}</p><Link href="/carica" className="button button-primary" style={{ marginTop: 12 }}>Condividi un notebook</Link></div>
             ) : visible.map((n) => (
               <NotebookCard key={n.id} notebook={n} saved={savedIds.includes(n.id)} useful={usefulCounts[n.id] ?? 0} comments={commentCounts[n.id] ?? 0} icon={subjectIcons[n.subject] ?? <BookOpen size={20} />} />
