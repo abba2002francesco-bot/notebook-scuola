@@ -9,7 +9,9 @@ Sito community per scoprire e condividere link pubblici a notebook NotebookLM. I
 - Registrazione e accesso con email e password tramite Supabase Auth.
 - Invio di un notebook con link, materia, livello, argomento, indirizzo scolastico facoltativo, tag, descrizione e fino a 4 immagini.
 - Preferiti personali, voto «Utile», commenti e segnalazioni.
-- Eliminazione dei propri notebook.
+- Modifica ed eliminazione dei propri notebook.
+- Impostazioni profilo per nome visualizzato, nome utente univoco, cambio email e password.
+- Statistiche visite e visualizzazioni tramite Vercel Web Analytics.
 - Regole di community e protezione dati tramite Row Level Security (RLS) di Supabase.
 
 ## Stack
@@ -111,6 +113,33 @@ Ogni volta che invii modifiche al repository GitHub, Vercel ricostruisce e pubbl
 5. Prova il pulsante **Apri su NotebookLM** e controlla che il link sia effettivamente pubblico.
 6. Accedi con un secondo account e prova preferiti, voto, commento e segnalazione.
 7. Verifica che un utente non possa eliminare il notebook di un altro.
+
+## 7. Attiva le statistiche delle visite (Vercel Web Analytics)
+
+Questa versione include già il componente `@vercel/analytics` nel layout Next.js.
+
+1. Apri il progetto su Vercel.
+2. Nel menu del progetto apri **Analytics**.
+3. Premi **Enable** per attivare Web Analytics.
+4. Pubblica questa versione aggiornata del codice (il deploy successivo invia i dati).
+5. Dopo le prime visite, torna in **Analytics** e scegli l'intervallo temporale. Le schede Visitors e Page Views mostrano visitatori unici giornalieri e visualizzazioni; puoi consultare anche pagine, provenienza, Paese e dispositivo.
+
+Le statistiche iniziano a raccogliere dati soltanto dopo l'attivazione e la pubblicazione di questa versione: non ricostruiscono le visite precedenti. Vercel dichiara che Web Analytics usa dati anonimizzati e non usa cookie; resta comunque opportuno descrivere il servizio nell'informativa privacy del sito.
+
+## 8. Aggiorna un progetto Notebook Scuola già pubblicato
+
+Se hai già creato il database con la vecchia versione dello schema, **non eseguire di nuovo tutto `schema.sql`**. Esegui una sola volta il file `supabase/profile-settings-migration.sql` da Supabase → SQL Editor → New query → Run. Questo aggiunge il nome utente univoco ai profili esistenti e aggiorna il trigger per i nuovi account. Non modifica né cancella notebook, email o password.
+
+Poi carica su GitHub i file della versione aggiornata mantenendo le stesse cartelle. Quando fai Commit changes, Vercel avvierà il deploy. Il nuovo codice aggiunge:
+
+- pulsanti Esplora e I miei notebook funzionanti;
+- collegamento del nome profilo alla pagina Impostazioni;
+- modifica delle proprie schede notebook, comprese le immagini;
+- cambio nome visualizzato e nome utente pubblico;
+- cambio email e password con richiesta di conferma della password attuale;
+- Vercel Web Analytics per visitatori e visualizzazioni.
+
+L'email e la password sono gestite da Supabase Auth: non sono inserite nella tabella pubblica `profiles`. Il sito non può mostrare la password attuale; consente soltanto di cambiarla.
 
 ## Limiti e attività ancora necessarie prima del lancio pubblico
 

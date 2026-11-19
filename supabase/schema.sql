@@ -7,9 +7,13 @@ create extension if not exists pgcrypto;
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null default 'Studente',
+  username text not null unique,
   created_at timestamptz not null default now(),
-  constraint profiles_display_name_length check (char_length(display_name) between 1 and 40)
+  constraint profiles_display_name_length check (char_length(display_name) between 1 and 40),
+  constraint profiles_username_format check (username ~ '^[a-z0-9_]{3,24}$')
 );
+
+create unique index if not exists profiles_username_unique on public.profiles (lower(username));
 
 create or replace function public.handle_new_user()
 returns trigger
@@ -17,11 +21,21 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_display_name text;
+  v_username_base text;
 begin
-  insert into public.profiles (id, display_name)
+  v_display_name := left(coalesce(nullif(trim(new.raw_user_meta_data->>'display_name'), ''), split_part(coalesce(new.email, 'studente'), '@', 1)), 40);
+  v_username_base := left(regexp_replace(lower(v_display_name), '[^a-z0-9_]', '', 'g'), 15);
+  if v_username_base = '' then
+    v_username_base := 'studente';
+  end if;
+
+  insert into public.profiles (id, display_name, username)
   values (
     new.id,
-    left(coalesce(nullif(trim(new.raw_user_meta_data->>'display_name'), ''), split_part(coalesce(new.email, 'studente'), '@', 1)), 40)
+    v_display_name,
+    v_username_base || '_' || substr(replace(new.id::text, '-', ''), 1, 8)
   )
   on conflict (id) do nothing;
   return new;

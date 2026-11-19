@@ -4,8 +4,18 @@ import { createContext, useContext, useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
-type AuthValue = { user: User | null; loading: boolean; displayName: string };
-const AuthContext = createContext<AuthValue>({ user: null, loading: true, displayName: "" });
+type AuthValue = {
+  user: User | null;
+  loading: boolean;
+  displayName: string;
+  updateDisplayName: (value: string) => void;
+};
+const AuthContext = createContext<AuthValue>({
+  user: null,
+  loading: true,
+  displayName: "",
+  updateDisplayName: () => undefined,
+});
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -37,7 +47,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  return <AuthContext.Provider value={{ user, loading, displayName }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, loading, displayName, updateDisplayName: setDisplayName }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

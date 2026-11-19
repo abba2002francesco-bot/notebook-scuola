@@ -12,7 +12,7 @@ export type Notebook = {
   description: string;
   image_paths: string[];
   created_at: string;
-  profiles?: { display_name: string | null } | null;
+  profiles?: { display_name: string | null; username?: string | null } | null;
   useful_count?: number;
   comment_count?: number;
 };
@@ -23,7 +23,7 @@ export type NotebookComment = {
   user_id: string;
   content: string;
   created_at: string;
-  profiles?: { display_name: string | null } | null;
+  profiles?: { display_name: string | null; username?: string | null } | null;
 };
 
 export const SUBJECTS = [

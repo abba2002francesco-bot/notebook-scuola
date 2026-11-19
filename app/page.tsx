@@ -38,7 +38,7 @@ export default function HomePage() {
       if (!supabase) { setLoading(false); return; }
       setLoading(true);
       const [notebookResult, votesResult, commentsResult, favoritesResult] = await Promise.all([
-        supabase.from("notebooks").select("*, profiles(display_name)").order("created_at", { ascending: false }).limit(150),
+        supabase.from("notebooks").select("*, profiles(display_name, username)").order("created_at", { ascending: false }).limit(150),
         supabase.from("notebook_votes").select("notebook_id"),
         supabase.from("notebook_comments").select("notebook_id"),
         user ? supabase.from("notebook_favorites").select("notebook_id").eq("user_id", user.id) : Promise.resolve({ data: [] as { notebook_id: string }[] }),
@@ -146,7 +146,7 @@ function NotebookCard({ notebook, saved, useful, comments, icon }: { notebook: N
       <div className="card-title">{notebook.title}</div>
       <p className="card-desc">{notebook.description}</p>
       <div className="card-tags"><span className="tag">{notebook.subject}</span>{notebook.topic && <span className="tag">{notebook.topic}</span>}{(notebook.content_types ?? []).slice(0, 2).map((t) => <span className="tag" key={t}>{t}</span>)}{saved && <span className="tag"><BookmarkCheck size={10} style={{ verticalAlign: "-1px" }} /> Salvato</span>}</div>
-      <div className="card-bottom"><div className="card-meta"><span><Star size={12} /> {useful}</span><span><Heart size={12} /> {comments}</span></div><span className="card-meta">{notebook.profiles?.display_name || "Studente"} <ArrowRight size={13} /></span></div>
+      <div className="card-bottom"><div className="card-meta"><span><Star size={12} /> {useful}</span><span><Heart size={12} /> {comments}</span></div><span className="card-meta">{notebook.profiles?.display_name || "Studente"}{notebook.profiles?.username ? ` · @${notebook.profiles.username}` : ""} <ArrowRight size={13} /></span></div>
     </Link>
   );
 }
