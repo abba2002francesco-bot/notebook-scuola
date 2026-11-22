@@ -33,6 +33,7 @@ export default function EditNotebookPage() {
     topic: "", school: "", tags: "", description: "",
   });
   const [contentTypes, setContentTypes] = useState<string[]>([]);
+  const [sourceCount, setSourceCount] = useState("");
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [removedImages, setRemovedImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,6 +69,7 @@ export default function EditNotebookPage() {
           description: row.description,
         });
         setContentTypes(row.content_types ?? []);
+        setSourceCount(row.source_count == null ? "" : String(row.source_count));
       }
       setLoading(false);
     }
@@ -148,6 +150,7 @@ export default function EditNotebookPage() {
         school: form.school.trim() || null,
         tags: form.tags.split(",").map((tag) => tag.trim()).filter(Boolean).slice(0, 10),
         content_types: contentTypes,
+        source_count: sourceCount === "" ? null : Number(sourceCount),
         description: form.description.trim(),
         image_paths: [...keptImages, ...uploadedPaths],
         updated_at: new Date().toISOString(),
@@ -221,6 +224,7 @@ export default function EditNotebookPage() {
             <div className="field"><label>Argomento</label><input maxLength={80} value={form.topic} onChange={(event) => update("topic", event.target.value)} /></div>
             <div className="field"><label>Indirizzo scolastico (facoltativo)</label><input maxLength={80} value={form.school} onChange={(event) => update("school", event.target.value)} /></div>
           </div>
+          <div className="field full"><label htmlFor="edit-source-count">Numero di fonti</label><input id="edit-source-count" type="number" inputMode="numeric" min="0" max="1000" step="1" value={sourceCount} onChange={(event) => setSourceCount(event.target.value)} placeholder="Non indicato" /><small>Facoltativo per le pubblicazioni create prima dell'introduzione del conteggio fonti.</small></div>
           <div className="field full"><label>Che cosa contiene?</label><div className="checkbox-grid">{CONTENT_TYPES.map((item) => <label className="check-chip" key={item}><input type="checkbox" checked={contentTypes.includes(item)} onChange={() => toggleContentType(item)} />{item}</label>)}</div></div>
           <div className="field full"><label>Tag</label><input placeholder="Separali con una virgola" value={form.tags} onChange={(event) => update("tags", event.target.value)} /><small>Massimo 10 tag.</small></div>
           <div className="field full"><label htmlFor="edit-description">Descrizione *</label><textarea id="edit-description" required minLength={20} maxLength={1200} value={form.description} onChange={(event) => update("description", event.target.value)} /><small>{form.description.length}/1200 caratteri</small></div>
