@@ -11,6 +11,7 @@ export type Notebook = {
   content_types: string[];
   description: string;
   image_paths: string[];
+  source_count?: number | null;
   created_at: string;
   profiles?: { display_name: string | null; username?: string | null } | null;
   useful_count?: number;
