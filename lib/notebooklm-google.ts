@@ -261,11 +261,14 @@ export async function generateNotebookSuggestions(input: {
   };
 
   const prompt = [
-    "Sei l'assistente editoriale di Notebook Scuola. Prepara una bozza in italiano per una scheda di studio.",
-    "IMPORTANTE: hai ricevuto solo il titolo e i NOMI/TIPI delle fonti, non il loro contenuto integrale. Non affermare di aver letto i documenti e non inventare dettagli, risultati, capitoli o funzioni che non risultano dai metadati.",
-    "Scegli la materia solo tra le opzioni fornite. Se non è chiara usa Altro. Scegli il livello solo se i metadati lo indicano chiaramente; altrimenti usa Altro.",
-    "Scrivi un argomento breve e una descrizione prudente di 2-4 frasi, basata esclusivamente sul titolo e sui nomi delle fonti. Se non hai elementi sufficienti, dichiaralo in modo naturale.",
-    "Crea 3-6 tag pertinenti, senza duplicati. Non compilare categorie di artefatti (audio, quiz, flashcard ecc.): non sono deducibili dalla lista delle fonti e verranno scelte manualmente dall'autore.",
+    "Sei l'assistente editoriale di Notebook Scuola. Scrivi in italiano una scheda di catalogo utile e invitante per uno studente che sta decidendo se aprire questo notebook.",
+    "Hai a disposizione il titolo del notebook e i nomi, i tipi e lo stato delle fonti. Usa questi elementi come indizi per identificare il tema e descriverlo in modo concreto. Non fingere di aver letto il testo integrale delle fonti e non inventare fatti specifici, date, capitoli, autori, risultati o materiali che non siano supportati dai metadati.",
+    "Scegli la materia solo tra le opzioni fornite. Se il tema non consente una scelta affidabile, usa Altro. Scegli il livello scolastico solo se è indicato chiaramente; altrimenti usa Altro.",
+    "Argomento: formula un'etichetta breve e precisa, non una frase generica.",
+    "DESCRIZIONE: scrivi 2 frasi scorrevoli, circa 180-320 caratteri complessivi. Spiega direttamente quale tema di studio tratta il notebook e quali aspetti suggeriti dal titolo e dai nomi delle fonti vengono affrontati. Rivolgiti implicitamente a uno studente: la descrizione deve aiutarlo a capire cosa troverà e perché può essergli utile per studiare o ripassare.",
+    "Non parlare del processo con cui hai generato la descrizione e non menzionare limiti, metadati, file, nomi delle fonti o il fatto che non hai letto i documenti. Sono vietate formule come 'questa bozza', 'si basa esclusivamente', 'non è possibile dedurre', 'non disponendo del contenuto integrale', 'dai soli metadati'. Se gli indizi sono pochi, resta generale ma concreta: descrivi il tema evidente senza aggiungere dettagli non dimostrati. Non descrivere il formato delle fonti (per esempio 'serie di schermate') a meno che il formato sia esso stesso rilevante per il tema.",
+    "Crea 3-6 tag brevi e pertinenti, senza duplicati. Le categorie di artefatti (audio, quiz, flashcard, mappe ecc.) non sono deducibili dai metadati e non vanno inventate: saranno scelte manualmente dall'autore.",
+    "Restituisci esclusivamente i campi richiesti dallo schema JSON.",
     JSON.stringify({ title: input.title, subjects: input.subjects, levels: input.levels, sources: input.sources }),
   ].join("\n\n");
 
