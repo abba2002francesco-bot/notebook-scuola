@@ -335,12 +335,54 @@ export async function POST(request: NextRequest) {
       return jsonError("Non è stato possibile preparare la registrazione. Riprova più tardi.", 500);
     }
 
+    // Anche gli studenti dai 14 anni in su ricevono il ticket solo via email.
+    // L'account Auth viene creato soltanto dopo l'apertura del link personale.
+    const registrationUrl = new URL("/registrati", getPublicSiteUrl());
+    registrationUrl.hash = new URLSearchParams({
+      ticket: ticket.id,
+      email,
+      name: displayName,
+      flow: "age",
+    }).toString();
+    const safeName = escapeHtml(displayName);
+    const safeUrl = escapeHtml(registrationUrl.toString());
+
+    try {
+      await sendTransactionalEmail({
+        to: email,
+        subject: "Completa la registrazione a Notebook Scuola",
+        idempotencyKey: `student-registration-ticket-${ticket.id}`,
+        text: [
+          `Ciao ${displayName},`,
+          "Hai richiesto di creare un account su Notebook Scuola.",
+          "Per verificare che l'indirizzo email sia tuo e completare la registrazione, apri questo link personale:",
+          registrationUrl.toString(),
+          "Il collegamento scade tra 30 minuti. Se non hai richiesto tu la registrazione, ignora questo messaggio.",
+        ].join("\\n\\n"),
+        html: `
+          <div style="font-family:Arial,sans-serif;line-height:1.6;color:#20242a;max-width:600px">
+            <h2>Completa la registrazione</h2>
+            <p>Ciao ${safeName},</p>
+            <p>Hai richiesto di creare un account su Notebook Scuola. Per verificare che l'indirizzo email sia tuo, apri il collegamento personale qui sotto:</p>
+            <p><a href="${safeUrl}" style="display:inline-block;padding:12px 18px;background:#1f2937;color:#fff;text-decoration:none;border-radius:8px">Continua la registrazione</a></p>
+            <p>Il collegamento scade tra 30 minuti. Se non hai richiesto tu la registrazione, ignora questo messaggio.</p>
+            <p style="font-size:12px;color:#666">Notebook Scuola</p>
+          </div>
+        `,
+      });
+    } catch (emailError) {
+      await admin
+        .from("registration_authorizations")
+        .update({ revoked_at: now.toISOString() })
+        .eq("id", ticket.id);
+      console.error("[Registration request] Student verification email failed", emailError instanceof Error ? emailError.message : "unknown");
+      return jsonError("Non è stato possibile inviare il link di verifica. Riprova più tardi.", 503);
+    }
+
     return NextResponse.json({
-      status: "registration_allowed",
-      registrationTicket: ticket.id,
-      expiresAt: ticketExpiry.toISOString(),
-      message: "Puoi completare la registrazione.",
-    });
+      status: "student_email_sent",
+      message: "Ti abbiamo inviato un link personale per verificare il tuo indirizzo email e completare la registrazione. Controlla anche la cartella spam.",
+    }, { status: 202 });
   } catch (error) {
     console.error("[Registration request] Unexpected error", error instanceof Error ? error.message : "unknown");
     return jsonError("Servizio di registrazione momentaneamente non disponibile.", 503);
