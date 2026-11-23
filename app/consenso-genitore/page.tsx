@@ -17,6 +17,34 @@ export default function ParentConsentPage() {
     setToken(value);
   }, []);
 
+  async function decline() {
+    setError("");
+    setSuccess("");
+    if (!token) {
+      setError("Il collegamento non contiene un codice valido.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const response = await fetch("/api/registrazioni/consenso", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, action: "decline" }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(result.error || "Non è stato possibile rifiutare la richiesta.");
+        return;
+      }
+      setSuccess(result.message || "La richiesta è stata rifiutata.");
+    } catch {
+      setError("Connessione non disponibile. Riprova.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -121,6 +149,15 @@ export default function ParentConsentPage() {
               <ShieldCheck size={16} />
             </button>
           </form>
+          <button
+            type="button"
+            className="button button-secondary"
+            style={{ width: "100%", marginTop: 10 }}
+            disabled={busy || !token}
+            onClick={decline}
+          >
+            Non autorizzo questa richiesta
+          </button>
         )}
 
         {!token && !success && (
