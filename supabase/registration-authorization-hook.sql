@@ -134,7 +134,7 @@ BEGIN
           FROM public.parental_consent_requests AS consent
           WHERE consent.id = ra.parental_consent_request_id
             AND lower(btrim(consent.child_email)) = v_email
-            AND consent.status IN ('approved', 'invite_sent')
+            AND consent.status IN ('approved', 'invite_sent', 'invite_failed')
             AND consent.guardian_declaration_accepted IS TRUE
             AND consent.approved_at IS NOT NULL
             AND consent.expires_at > pg_catalog.now()
