@@ -147,7 +147,7 @@ BEGIN
       'error',
       jsonb_build_object(
         'http_code', 403,
-        'message', 'Autorizzazione assente, scaduta o gia' utilizzata. Ripeti la procedura dal sito Notebook Scuola.'
+        'message', 'Autorizzazione assente, scaduta o non piu'' valida. Ripeti la procedura dal sito Notebook Scuola.'
       )
     );
   END IF;
