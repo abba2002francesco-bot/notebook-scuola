@@ -26,7 +26,11 @@ export async function POST(request: NextRequest) {
   };
 
   try {
-    body = await request.json();
+    const parsed = await request.json();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return jsonError("La richiesta non è valida.", 400);
+    }
+    body = parsed;
   } catch {
     return jsonError("La richiesta non è valida.", 400);
   }
