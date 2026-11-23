@@ -133,6 +133,26 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const { data: consentRateAllowed, error: consentRateError } = await admin.rpc(
+      "take_registration_rate_limit",
+      {
+        p_keys: [hashToken(`parent-consent-request:${found.id}`)],
+        p_max_requests: 5,
+        p_window_seconds: 3600,
+      },
+    );
+
+    if (consentRateError) {
+      console.error("[Parental consent] Rate limit check failed", consentRateError.code);
+      return jsonError("Il servizio di autorizzazione è momentaneamente non disponibile.", 503);
+    }
+    if (consentRateAllowed !== true) {
+      return NextResponse.json(
+        { error: "Sono stati effettuati troppi tentativi su questa richiesta. Riprova tra circa un'ora." },
+        { status: 429, headers: { "Retry-After": "3600" } },
+      );
+    }
+
     let approvedRequest = found;
 
     if (found.status === "pending") {
