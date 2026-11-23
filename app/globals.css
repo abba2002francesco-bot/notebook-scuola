@@ -807,3 +807,26 @@ button { cursor: pointer; }
     transition: none;
   }
 }
+
+/* Collegamento amministratore nel menu */
+.nav-actions .admin-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* Su smartphone mostra soltanto l'icona */
+@media (max-width: 620px) {
+  .nav-actions .admin-nav-link {
+    display: inline-flex;
+    font-size: 0;
+    padding: 9px;
+  }
+
+  .nav-actions .admin-nav-link svg {
+    width: 17px;
+    height: 17px;
+  }
+}
