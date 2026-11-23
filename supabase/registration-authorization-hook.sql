@@ -118,21 +118,21 @@ BEGIN
 
   -- L'UPDATE condizionale rende il consumo monouso anche con richieste simultanee.
   -- Per i minori di 14 anni viene ricontrollato lo stato effettivo del consenso.
-  UPDATE public.registration_authorizations AS authorization
+  UPDATE public.registration_authorizations AS ra
   SET consumed_at = pg_catalog.now()
-  WHERE authorization.id = v_ticket_id
-    AND authorization.student_email = v_email
-    AND authorization.expires_at > pg_catalog.now()
-    AND authorization.consumed_at IS NULL
-    AND authorization.revoked_at IS NULL
+  WHERE ra.id = v_ticket_id
+    AND ra.student_email = v_email
+    AND ra.expires_at > pg_catalog.now()
+    AND ra.consumed_at IS NULL
+    AND ra.revoked_at IS NULL
     AND (
-      authorization.authorization_type = 'age_14_plus'
+      ra.authorization_type = 'age_14_plus'
       OR (
-        authorization.authorization_type = 'parental_consent'
+        ra.authorization_type = 'parental_consent'
         AND EXISTS (
           SELECT 1
           FROM public.parental_consent_requests AS consent
-          WHERE consent.id = authorization.parental_consent_request_id
+          WHERE consent.id = ra.parental_consent_request_id
             AND lower(btrim(consent.child_email)) = v_email
             AND consent.status IN ('approved', 'invite_sent')
             AND consent.guardian_declaration_accepted IS TRUE
@@ -140,7 +140,7 @@ BEGIN
         )
       )
     )
-  RETURNING authorization.id INTO v_consumed_id;
+  RETURNING ra.id INTO v_consumed_id;
 
   IF v_consumed_id IS NULL THEN
     RETURN jsonb_build_object(
