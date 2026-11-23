@@ -167,6 +167,8 @@ END;
 $function$;
 
 -- Solo il ruolo interno usato da Supabase Auth puo' invocare l'hook.
+GRANT USAGE ON SCHEMA public TO supabase_auth_admin;
+
 GRANT EXECUTE
   ON FUNCTION public.hook_validate_registration_authorization(jsonb)
   TO supabase_auth_admin;
