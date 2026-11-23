@@ -41,6 +41,7 @@ function ConsentRegisterPage() {
   const [guardianEmail, setGuardianEmail] = useState("");
   const [ageDeclarationAccepted, setAgeDeclarationAccepted] = useState(false);
   const [registrationTicket, setRegistrationTicket] = useState("");
+  const [invitationFlow, setInvitationFlow] = useState<"parent" | "age" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -49,16 +50,22 @@ function ConsentRegisterPage() {
     const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const ticket = params.get("ticket") || "";
     const invitedEmail = params.get("email") || "";
-    if (ticket) setRegistrationTicket(ticket);
-    if (invitedEmail) setEmail(invitedEmail);
+    const invitedName = params.get("name") || "";
+    const flow = params.get("flow");
+    if (ticket && invitedEmail && (flow === "parent" || flow === "age")) {
+      setRegistrationTicket(ticket);
+      setInvitationFlow(flow);
+      setEmail(invitedEmail);
+      if (invitedName) setName(invitedName);
+    }
     if (window.location.hash) {
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
     }
   }, []);
 
-  const invitedByGuardian = Boolean(registrationTicket);
+  const invitedByInvitation = Boolean(registrationTicket && invitationFlow);
   const declaredAge = getDeclaredAge(birthDate);
-  const needsGuardian = !invitedByGuardian && declaredAge !== null && declaredAge < 14;
+  const needsGuardian = !invitedByInvitation && declaredAge !== null && declaredAge < 14;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -97,12 +104,15 @@ function ConsentRegisterPage() {
           return;
         }
 
-        if (requestResult.status !== "registration_allowed" || typeof requestResult.registrationTicket !== "string") {
-          setSuccess(requestResult.message || "La richiesta è stata ricevuta.");
-          return;
-        }
+        // Nessun ticket viene restituito al browser: lo studente deve aprire
+        // il link personale inviato alla propria casella email.
+        setSuccess(requestResult.message || "Controlla la tua casella email per proseguire.");
+        return;
+      }
 
-        ticket = requestResult.registrationTicket;
+      if (!invitationFlow) {
+        setError("Il collegamento personale non è valido. Avvia nuovamente la procedura di registrazione.");
+        return;
       }
 
       const { data, error: signUpError } = await supabase.auth.signUp({
@@ -142,9 +152,11 @@ function ConsentRegisterPage() {
         <h1>Crea il tuo account.</h1>
         <p>È gratuito. Potrai condividere notebook, salvare quelli utili e partecipare alla community.</p>
 
-        {invitedByGuardian && (
+        {invitedByInvitation && (
           <div className="alert alert-success">
-            Il genitore o tutore ha autorizzato la registrazione. Completa i dati per creare il tuo account.
+            {invitationFlow === "parent"
+              ? "Il genitore o tutore ha autorizzato la registrazione. Completa i dati per creare il tuo account."
+              : "Hai aperto il link personale inviato al tuo indirizzo email. Completa i dati per creare il tuo account."}
           </div>
         )}
 
@@ -169,13 +181,13 @@ function ConsentRegisterPage() {
               required
               autoComplete="email"
               placeholder="nome@email.com"
-              readOnly={invitedByGuardian}
+              readOnly={invitedByInvitation}
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
           </div>
 
-          {!invitedByGuardian && (
+          {!invitedByInvitation && (
             <>
               <div className="field">
                 <label htmlFor="register-birth-date">Data di nascita</label>
@@ -239,7 +251,13 @@ function ConsentRegisterPage() {
           {success && <div className="alert alert-success">{success}</div>}
 
           <button className="button button-primary" style={{ width: "100%" }} disabled={busy}>
-            {busy ? "Elaborazione…" : needsGuardian ? "Invia richiesta al genitore" : "Crea account gratuito"}
+            {busy
+              ? "Elaborazione…"
+              : invitedByInvitation
+                ? "Crea account e invia conferma"
+                : needsGuardian
+                  ? "Invia richiesta al genitore"
+                  : "Invia link di verifica"}
             <UserPlus size={16} />
           </button>
         </form>
