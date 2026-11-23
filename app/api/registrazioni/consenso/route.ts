@@ -114,6 +114,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (approvedRequest.status === "invite_sent") {
+      return NextResponse.json({
+        status: "already_sent",
+        message: "L'autorizzazione risulta già registrata e l'invito è stato inviato allo studente.",
+      });
+    }
+
     if (
       !["approved", "invite_failed"].includes(approvedRequest.status) ||
       approvedRequest.guardian_declaration_accepted !== true ||
