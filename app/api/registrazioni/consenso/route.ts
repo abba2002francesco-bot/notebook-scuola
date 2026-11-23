@@ -243,6 +243,10 @@ export async function POST(request: NextRequest) {
       ticketId = newTicket.id;
     }
 
+    if (!ticketId) {
+      return jsonError("Non è stato possibile preparare il collegamento personale dello studente.", 503);
+    }
+
     const registrationUrl = new URL("/registrati", getPublicSiteUrl());
     registrationUrl.hash = new URLSearchParams({ ticket: ticketId, email: approvedRequest.child_email }).toString();
     const safeName = escapeHtml(approvedRequest.child_display_name);
