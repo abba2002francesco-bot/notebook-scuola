@@ -76,7 +76,7 @@ function ConsentRegisterPage() {
       setError("Il sito non è ancora collegato a Supabase.");
       return;
     }
-    if (password.length < 8) {
+    if (registrationTicket && password.length < 8) {
       setError("La password deve contenere almeno 8 caratteri.");
       return;
     }
@@ -233,19 +233,21 @@ function ConsentRegisterPage() {
             </>
           )}
 
-          <div className="field">
-            <label htmlFor="register-password">Password</label>
-            <input
-              id="register-password"
-              type="password"
-              required
-              minLength={8}
-              autoComplete="new-password"
-              placeholder="Almeno 8 caratteri"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </div>
+          {invitedByInvitation && (
+            <div className="field">
+              <label htmlFor="register-password">Scegli una password</label>
+              <input
+                id="register-password"
+                type="password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                placeholder="Almeno 8 caratteri"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </div>
+          )}
 
           {error && <div className="alert alert-error">{error}</div>}
           {success && <div className="alert alert-success">{success}</div>}
