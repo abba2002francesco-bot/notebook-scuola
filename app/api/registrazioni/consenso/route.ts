@@ -126,13 +126,6 @@ export async function POST(request: NextRequest) {
       return jsonError("Il collegamento non è valido o è scaduto. Richiedi un nuovo invito.", 410);
     }
 
-    if (found.status === "invite_sent") {
-      return NextResponse.json({
-        status: "already_sent",
-        message: "L'autorizzazione risulta già registrata e l'invito è stato inviato allo studente.",
-      });
-    }
-
     let approvedRequest = found;
 
     if (found.status === "pending") {
@@ -172,15 +165,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (approvedRequest.status === "invite_sent") {
-      return NextResponse.json({
-        status: "already_sent",
-        message: "L'autorizzazione risulta già registrata e l'invito è stato inviato allo studente.",
-      });
-    }
-
     if (
-      !["approved", "invite_failed"].includes(approvedRequest.status) ||
+      !["approved", "invite_failed", "invite_sent"].includes(approvedRequest.status) ||
       approvedRequest.guardian_declaration_accepted !== true ||
       !approvedRequest.approved_at
     ) {
@@ -223,7 +209,8 @@ export async function POST(request: NextRequest) {
         .update({ revoked_at: now.toISOString() })
         .eq("student_email", approvedRequest.child_email)
         .is("consumed_at", null)
-        .is("revoked_at", null);
+        .is("revoked_at", null)
+        .lte("expires_at", now.toISOString());
 
       if (revokeError) {
         console.error("[Parental consent] Could not rotate registration ticket", revokeError.code);
