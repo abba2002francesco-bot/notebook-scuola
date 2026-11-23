@@ -106,8 +106,12 @@ export async function POST(request: NextRequest) {
           levels: LEVELS,
         });
         if (!suggestions) aiWarning = "Titolo e fonti letti correttamente. Per attivare i suggerimenti AI aggiungi GEMINI_API_KEY su Vercel.";
-      } catch {
-        aiWarning = "Ho letto titolo e fonti, ma Gemini non ha completato i suggerimenti. Puoi compilare i campi manualmente.";
+      } catch (aiError) {
+        const detail = aiError instanceof Error ? aiError.message : "Errore Gemini non identificato.";
+        console.error("[Notebook inspection] Gemini suggestions failed", {
+          message: detail.slice(0, 500),
+        });
+        aiWarning = `Gemini non ha generato i suggerimenti. Dettaglio: ${detail.slice(0, 300)}`;
       }
     } else {
       aiWarning = "Titolo e numero delle fonti letti. Per ricevere i suggerimenti descrittivi AI, seleziona prima l'autorizzazione a Gemini.";
