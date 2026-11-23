@@ -41,6 +41,59 @@ export async function POST(request: NextRequest) {
   if (!/^[a-f0-9]{64}$/i.test(token)) {
     return jsonError("Il collegamento non è valido o è scaduto. Richiedi un nuovo invito.", 400);
   }
+
+  if (body.action === "decline") {
+    try {
+      const admin = createSupabaseAdmin();
+      const now = new Date();
+      const { data: found, error: lookupError } = await admin
+        .from("parental_consent_requests")
+        .select("id, status, expires_at, guardian_declaration_accepted, approved_at")
+        .eq("approval_token_hash", hashToken(token))
+        .maybeSingle();
+
+      if (lookupError) {
+        console.error("[Parental consent] Could not look up decline request", lookupError.code);
+        return jsonError("Non è stato possibile verificare la richiesta. Riprova più tardi.", 503);
+      }
+      if (!found || new Date(found.expires_at).getTime() <= now.getTime()) {
+        return jsonError("Il collegamento non è valido o è scaduto.", 410);
+      }
+      if (found.status === "declined") {
+        return NextResponse.json({ status: "declined", message: "La richiesta è stata rifiutata." });
+      }
+      if (
+        !["pending", "invite_failed"].includes(found.status) ||
+        found.guardian_declaration_accepted === true ||
+        found.approved_at
+      ) {
+        return jsonError("Questa richiesta è già stata autorizzata o non può più essere modificata da questo collegamento.", 409);
+      }
+
+      const { data: declined, error: declineError } = await admin
+        .from("parental_consent_requests")
+        .update({ status: "declined", guardian_declaration_accepted: false })
+        .eq("id", found.id)
+        .eq("status", found.status)
+        .is("approved_at", null)
+        .select("id")
+        .maybeSingle();
+
+      if (declineError || !declined) {
+        console.error("[Parental consent] Could not decline request", declineError?.code || "status_changed");
+        return jsonError("La richiesta potrebbe essere già stata elaborata. Aggiorna la pagina e riprova.", 409);
+      }
+
+      return NextResponse.json({
+        status: "declined",
+        message: "La richiesta è stata rifiutata. Non verrà creato alcun account per questa procedura.",
+      });
+    } catch (error) {
+      console.error("[Parental consent] Unexpected decline error", error instanceof Error ? error.message : "unknown");
+      return jsonError("Servizio di autorizzazione momentaneamente non disponibile.", 503);
+    }
+  }
+
   if (guardianName.length < 2) {
     return jsonError("Inserisci il tuo nome e cognome.", 400);
   }
