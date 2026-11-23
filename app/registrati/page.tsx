@@ -169,6 +169,7 @@ function ConsentRegisterPage() {
               required
               autoComplete="email"
               placeholder="nome@email.com"
+              readOnly={invitedByGuardian}
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
