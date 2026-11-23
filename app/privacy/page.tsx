@@ -112,7 +112,7 @@ export default function PrivacyPage() {
             <li><strong>OVHcloud:</strong> registrazione e gestione del dominio e dei relativi DNS.</li>
           </ul>
           <p>
-            I ruoli dei singoli fornitori (responsabile del trattamento o titolare autonomo) dipendono dai servizi effettivamente utilizzati e dai relativi accordi. Prima della pubblicazione definitiva, il Titolare deve verificare e conservare i termini, le informative e gli eventuali accordi sul trattamento dei dati dei fornitori.
+            I ruoli dei singoli fornitori (responsabile del trattamento o titolare autonomo) sono determinati in base ai servizi effettivamente utilizzati e alla documentazione contrattuale applicabile. I fornitori trattano i dati secondo le proprie informative, condizioni di servizio e, ove applicabile, gli accordi sul trattamento dei dati.
           </p>
 
           <h2>7. Trasferimenti fuori dallo Spazio economico europeo</h2>
@@ -132,7 +132,7 @@ export default function PrivacyPage() {
             <li><strong>Statistiche:</strong> secondo i periodi e le modalità indicati da Vercel per Web Analytics; il fornitore descrive un identificatore di visita di sessione eliminato dopo 24 ore e dati statistici aggregati.</li>
           </ul>
           <p>
-            I criteri sopra indicati devono essere confrontati con i backup e i tempi di conservazione effettivi dei fornitori e confermati dal Titolare prima del lancio pubblico.
+            Le copie di backup e i log tecnici possono permanere per i periodi operativi previsti dai fornitori, anche dopo la cancellazione dai sistemi attivi; vengono gestiti secondo le procedure tecniche di sicurezza e cancellazione dei rispettivi servizi.
           </p>
 
           <h2>9. Diritti degli interessati</h2>
