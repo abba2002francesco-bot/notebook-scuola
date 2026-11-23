@@ -99,12 +99,13 @@ export default function ParentConsentPage() {
             </div>
 
             <div className="field">
-              <label className="checkbox-field">
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 10, fontWeight: 500, lineHeight: 1.5 }}>
                 <input
                   type="checkbox"
                   checked={accepted}
                   onChange={(event) => setAccepted(event.target.checked)}
                   required
+                  style={{ width: 17, minWidth: 17, marginTop: 2, accentColor: "var(--accent)" }}
                 />
                 <span>
                   Dichiaro di esercitare la responsabilità genitoriale o tutoriale nei confronti
