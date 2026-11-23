@@ -248,7 +248,12 @@ export async function POST(request: NextRequest) {
     }
 
     const registrationUrl = new URL("/registrati", getPublicSiteUrl());
-    registrationUrl.hash = new URLSearchParams({ ticket: ticketId, email: approvedRequest.child_email }).toString();
+    registrationUrl.hash = new URLSearchParams({
+      ticket: ticketId,
+      email: approvedRequest.child_email,
+      name: approvedRequest.child_display_name,
+      flow: "parent",
+    }).toString();
     const safeName = escapeHtml(approvedRequest.child_display_name);
     const safeUrl = escapeHtml(registrationUrl.toString());
 
