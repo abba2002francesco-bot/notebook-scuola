@@ -250,7 +250,7 @@ export async function POST(request: NextRequest) {
     }
 
     const registrationUrl = new URL("/registrati", getPublicSiteUrl());
-    registrationUrl.hash = `ticket=${ticketId}`;
+    registrationUrl.hash = new URLSearchParams({ ticket: ticketId, email: approvedRequest.child_email }).toString();
     const safeName = escapeHtml(approvedRequest.child_display_name);
     const safeUrl = escapeHtml(registrationUrl.toString());
 
