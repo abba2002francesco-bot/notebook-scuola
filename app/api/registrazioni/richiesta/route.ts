@@ -103,6 +103,19 @@ export async function POST(request: NextRequest) {
     const now = new Date();
 
     if (age < 14) {
+      // Marca come scadute le richieste precedenti: la vecchia riga non deve impedire un nuovo invito.
+      const { error: expireOldRequestsError } = await admin
+        .from("parental_consent_requests")
+        .update({ status: "expired" })
+        .eq("child_email", email)
+        .in("status", ["pending", "approved", "invite_sent", "invite_failed"])
+        .lte("expires_at", now.toISOString());
+
+      if (expireOldRequestsError) {
+        console.error("[Registration request] Could not expire old parental requests", expireOldRequestsError.code);
+        return jsonError("Non è stato possibile verificare le richieste precedenti. Riprova più tardi.", 503);
+      }
+
       const { data: existingParentalRequest, error: existingRequestError } = await admin
         .from("parental_consent_requests")
         .select("status, guardian_declaration_accepted")
