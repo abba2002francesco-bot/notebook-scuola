@@ -32,7 +32,7 @@ function getDeclaredAge(value: string) {
   return age >= 0 && age <= 120 ? age : null;
 }
 
-export default function RegisterPage() {
+function ConsentRegisterPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -247,4 +247,88 @@ export default function RegisterPage() {
       </div>
     </div>
   );
+}
+
+const CONSENT_REGISTRATION_ENABLED = false;
+
+function LegacyRegisterPage() {
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setSuccess("");
+    if (!supabase) {
+      setError("Il sito non è ancora collegato a Supabase.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("La password deve contenere almeno 8 caratteri.");
+      return;
+    }
+
+    setBusy(true);
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        data: { display_name: name.trim() },
+        emailRedirectTo: `${window.location.origin}/`,
+      },
+    });
+    setBusy(false);
+
+    if (signUpError) {
+      setError(signUpError.message);
+      return;
+    }
+    if (data.session) {
+      router.push("/");
+      router.refresh();
+    } else {
+      setSuccess("Account creato. Controlla la tua email e conferma la registrazione prima di accedere.");
+    }
+  }
+
+  return (
+    <div className="container page">
+      <div className="panel auth-wrap">
+        <span className="eyebrow"><UserPlus size={14} /> Entra nella community</span>
+        <h1>Crea il tuo account.</h1>
+        <p>È gratuito. Potrai condividere notebook, salvare quelli utili e partecipare alla community.</p>
+        <form onSubmit={submit}>
+          <div className="field">
+            <label htmlFor="legacy-register-name">Nome visualizzato</label>
+            <input id="legacy-register-name" required maxLength={40} placeholder="Come vuoi apparire sul sito" value={name} onChange={(event) => setName(event.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="legacy-register-email">Email</label>
+            <input id="legacy-register-email" type="email" required autoComplete="email" placeholder="nome@email.com" value={email} onChange={(event) => setEmail(event.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="legacy-register-password">Password</label>
+            <input id="legacy-register-password" type="password" required minLength={8} autoComplete="new-password" placeholder="Almeno 8 caratteri" value={password} onChange={(event) => setPassword(event.target.value)} />
+          </div>
+          {error && <div className="alert alert-error">{error}</div>}
+          {success && <div className="alert alert-success">{success}</div>}
+          <button className="button button-primary" style={{ width: "100%" }} disabled={busy}>
+            {busy ? "Creazione account…" : "Crea account gratuito"}
+            <UserPlus size={16} />
+          </button>
+        </form>
+        <div className="auth-switch">Hai già un account? <Link href="/accedi">Accedi</Link></div>
+      </div>
+    </div>
+  );
+}
+
+export default function RegisterPage() {
+  // Attivare solo dopo aver eseguito lo script SQL e configurato il Before User Created Hook su Supabase.
+  return CONSENT_REGISTRATION_ENABLED ? <ConsentRegisterPage /> : <LegacyRegisterPage />;
 }
