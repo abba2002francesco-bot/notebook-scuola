@@ -97,6 +97,7 @@ export default function ParentConsentPage() {
         {success ? (
           <div className="alert alert-success">{success}</div>
         ) : (
+          <>
           <form onSubmit={submit}>
             <div className="field">
               <label htmlFor="guardian-name">Nome e cognome</label>
@@ -158,6 +159,7 @@ export default function ParentConsentPage() {
           >
             Non autorizzo questa richiesta
           </button>
+          </>
         )}
 
         {!token && !success && (
