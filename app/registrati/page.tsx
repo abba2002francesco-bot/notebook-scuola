@@ -48,7 +48,9 @@ function ConsentRegisterPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const ticket = params.get("ticket") || "";
+    const invitedEmail = params.get("email") || "";
     if (ticket) setRegistrationTicket(ticket);
+    if (invitedEmail) setEmail(invitedEmail);
     if (window.location.hash) {
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
     }
