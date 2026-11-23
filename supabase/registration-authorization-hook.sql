@@ -47,6 +47,15 @@ CREATE TABLE IF NOT EXISTS public.registration_authorizations (
     CHECK (NOT (consumed_at IS NOT NULL AND revoked_at IS NOT NULL))
 );
 
+-- Collega l'autorizzazione all'utente effettivamente creato da Supabase Auth.
+ALTER TABLE public.registration_authorizations
+  ADD COLUMN IF NOT EXISTS consumed_by_auth_user_id uuid
+  REFERENCES auth.users(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS registration_authorizations_consumed_user_idx
+  ON public.registration_authorizations (consumed_by_auth_user_id)
+  WHERE consumed_by_auth_user_id IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS registration_authorizations_expiry_idx
   ON public.registration_authorizations (expires_at)
   WHERE consumed_at IS NULL AND revoked_at IS NULL;
@@ -182,3 +191,59 @@ COMMENT ON TABLE public.registration_authorizations IS
 
 COMMENT ON FUNCTION public.hook_validate_registration_authorization(jsonb) IS
   'Supabase Before User Created Hook: rifiuta ogni signup senza ticket valido, associato all''email e non ancora consumato.';
+
+-- Dopo l'inserimento in auth.users, collega il ticket consumato all'utente appena creato.
+-- Per le richieste under 14 aggiorna anche parental_consent_requests.auth_user_id.
+-- Il ticket non viene mantenuto nei metadati dell'utente dopo il suo utilizzo.
+CREATE OR REPLACE FUNCTION public.link_registration_authorization_to_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+  v_ticket_text text;
+  v_ticket_id uuid;
+  v_parent_request_id uuid;
+BEGIN
+  v_ticket_text := nullif(NEW.raw_user_meta_data->>'registration_ticket', '');
+
+  IF v_ticket_text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12} THEN
+    v_ticket_id := v_ticket_text::uuid;
+
+    UPDATE public.registration_authorizations AS ra
+    SET consumed_by_auth_user_id = NEW.id
+    WHERE ra.id = v_ticket_id
+      AND ra.student_email = lower(coalesce(NEW.email, ''))
+      AND ra.consumed_at IS NOT NULL
+      AND ra.consumed_by_auth_user_id IS NULL
+    RETURNING ra.parental_consent_request_id INTO v_parent_request_id;
+
+    IF v_parent_request_id IS NOT NULL THEN
+      UPDATE public.parental_consent_requests AS consent
+      SET auth_user_id = NEW.id
+      WHERE consent.id = v_parent_request_id
+        AND lower(btrim(consent.child_email)) = lower(coalesce(NEW.email, ''))
+        AND consent.guardian_declaration_accepted IS TRUE
+        AND consent.approved_at IS NOT NULL;
+    END IF;
+  END IF;
+
+  IF coalesce(NEW.raw_user_meta_data, '{}'::jsonb) ? 'registration_ticket' THEN
+    UPDATE auth.users
+    SET raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) - 'registration_ticket'
+    WHERE id = NEW.id;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE EXECUTE
+  ON FUNCTION public.link_registration_authorization_to_new_user()
+  FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS on_registration_authorization_user_created ON auth.users;
+CREATE TRIGGER on_registration_authorization_user_created
+AFTER INSERT ON auth.users
+FOR EACH ROW EXECUTE FUNCTION public.link_registration_authorization_to_new_user();
