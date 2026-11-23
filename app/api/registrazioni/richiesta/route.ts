@@ -103,6 +103,34 @@ export async function POST(request: NextRequest) {
     const now = new Date();
 
     if (age < 14) {
+      const { data: existingParentalRequest, error: existingRequestError } = await admin
+        .from("parental_consent_requests")
+        .select("status, guardian_declaration_accepted")
+        .eq("child_email", email)
+        .in("status", ["pending", "approved", "invite_sent", "invite_failed"])
+        .gt("expires_at", now.toISOString())
+        .limit(1)
+        .maybeSingle();
+
+      if (existingRequestError) {
+        console.error("[Registration request] Could not check existing parental request", existingRequestError.code);
+        return jsonError("Non è stato possibile verificare la richiesta. Riprova più tardi.", 503);
+      }
+
+      // Se l'invio dell'email al genitore era fallito prima dell'autorizzazione,
+      // consentiamo una nuova richiesta. Gli altri stati attivi non vanno duplicati.
+      const previousGuardianEmailFailed = existingParentalRequest?.status === "invite_failed" &&
+        existingParentalRequest.guardian_declaration_accepted !== true;
+
+      if (existingParentalRequest && !previousGuardianEmailFailed) {
+        return NextResponse.json({
+          status: "parental_request_in_progress",
+          message: existingParentalRequest.guardian_declaration_accepted === true
+            ? "La procedura risulta già autorizzata. Controlla l'email dello studente o chiedi al genitore di riaprire il messaggio ricevuto."
+            : "Per questo indirizzo esiste già una richiesta in attesa. Controlla la casella del genitore.",
+        }, { status: 202 });
+      }
+
       const guardianEmail = normalizeEmail(body.guardianEmail);
       if (!isValidEmail(guardianEmail)) {
         return jsonError("Per proseguire serve l'email di un genitore o tutore.", 400);
