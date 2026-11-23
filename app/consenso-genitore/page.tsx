@@ -13,8 +13,13 @@ export default function ParentConsentPage() {
   const [success, setSuccess] = useState("");
 
   useEffect(() => {
-    const value = new URLSearchParams(window.location.search).get("token") || "";
+    const query = new URLSearchParams(window.location.search);
+    const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const value = fragment.get("token") || query.get("token") || "";
     setToken(value);
+    if (fragment.has("token")) {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
   }, []);
 
   async function decline() {
