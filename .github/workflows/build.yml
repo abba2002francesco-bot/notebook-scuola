@@ -201,5 +201,33 @@ jobs:
               RAISE EXCEPTION 'Un ticket 14+ ha superato una richiesta genitoriale pendente';
             END IF;
           END;
-          $$;
+          $;
+
+          SET ROLE service_role;
+          SELECT public.take_registration_rate_limit(
+            ARRAY['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
+            2,
+            3600
+          );
+          RESET ROLE;
+
+          DO $
+          BEGIN
+            IF NOT public.take_registration_rate_limit(
+              ARRAY['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
+              2,
+              3600
+            ) THEN
+              RAISE EXCEPTION 'La seconda richiesta entro soglia è stata bloccata';
+            END IF;
+
+            IF public.take_registration_rate_limit(
+              ARRAY['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
+              2,
+              3600
+            ) THEN
+              RAISE EXCEPTION 'La richiesta oltre soglia non è stata bloccata';
+            END IF;
+          END;
+          $;
           SQL
