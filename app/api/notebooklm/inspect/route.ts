@@ -1,5 +1,7 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+import { createSupabaseAdmin } from "@/lib/supabase-admin";
+import { hashToken } from "@/lib/registration";
 import {
   decryptGoogleConnection,
   extractLinkIds,
@@ -33,6 +35,34 @@ export async function POST(request: NextRequest) {
     const connection = encryptedCookie ? decryptGoogleConnection(encryptedCookie) : null;
     if (!connection || connection.userId !== userId) {
       return NextResponse.json({ error: "Collega prima il tuo account Google con il pulsante qui sopra." }, { status: 401 });
+    }
+
+    // Protegge la chiave Gemini condivisa: ogni account può richiedere al massimo
+    // 10 generazioni AI all'ora. La lettura dei metadati senza AI resta disponibile.
+    if (body?.generateAi === true) {
+      const admin = createSupabaseAdmin();
+      const { data: aiAllowed, error: aiRateLimitError } = await admin.rpc(
+        "take_registration_rate_limit",
+        {
+          p_keys: [hashToken(`notebook-ai-user:${userId}`)],
+          p_max_requests: 10,
+          p_window_seconds: 3600,
+        },
+      );
+
+      if (aiRateLimitError) {
+        console.error("[Notebook inspection] AI rate limit check failed", aiRateLimitError.code);
+        return NextResponse.json(
+          { error: "Il servizio AI è momentaneamente non disponibile. Riprova più tardi." },
+          { status: 503 },
+        );
+      }
+      if (aiAllowed !== true) {
+        return NextResponse.json(
+          { error: "Hai raggiunto il limite di 10 compilazioni AI nell'ultima ora. Riprova più tardi." },
+          { status: 429, headers: { "Retry-After": "3600" } },
+        );
+      }
     }
 
     const accessToken = await refreshGoogleAccessToken(connection.refreshToken);
