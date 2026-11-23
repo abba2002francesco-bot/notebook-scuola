@@ -358,7 +358,7 @@ export async function POST(request: NextRequest) {
           "Per verificare che l'indirizzo email sia tuo e completare la registrazione, apri questo link personale:",
           registrationUrl.toString(),
           "Il collegamento scade tra 30 minuti. Se non hai richiesto tu la registrazione, ignora questo messaggio.",
-        ].join("\\n\\n"),
+        ].join("\n\n"),
         html: `
           <div style="font-family:Arial,sans-serif;line-height:1.6;color:#20242a;max-width:600px">
             <h2>Completa la registrazione</h2>
