@@ -133,7 +133,7 @@ jobs:
             jsonb_build_object('display_name', 'Studente', 'registration_ticket', '22222222-2222-4222-8222-222222222222')
           );
 
-          DO $$
+          DO $ticket_test$
           DECLARE
             v_result jsonb;
           BEGIN
@@ -201,7 +201,7 @@ jobs:
               RAISE EXCEPTION 'Un ticket 14+ ha superato una richiesta genitoriale pendente';
             END IF;
           END;
-          $;
+          $ticket_test$;
 
           SET ROLE service_role;
           SELECT public.take_registration_rate_limit(
@@ -211,7 +211,7 @@ jobs:
           );
           RESET ROLE;
 
-          DO $
+          DO $limit_test$
           BEGIN
             IF NOT public.take_registration_rate_limit(
               ARRAY['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
@@ -229,5 +229,5 @@ jobs:
               RAISE EXCEPTION 'La richiesta oltre soglia non è stata bloccata';
             END IF;
           END;
-          $;
+          $limit_test$;
           SQL
