@@ -19,6 +19,7 @@ function jsonError(message: string, status: number) {
 export async function POST(request: NextRequest) {
   let body: {
     token?: unknown;
+    action?: unknown;
     guardianName?: unknown;
     guardianRelationship?: unknown;
     accepted?: unknown;
