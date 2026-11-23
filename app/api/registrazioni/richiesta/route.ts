@@ -133,6 +133,23 @@ export async function POST(request: NextRequest) {
         return jsonError("Non è stato possibile registrare la richiesta. Riprova più tardi.", 500);
       }
 
+      // Una nuova richiesta under 14 invalida qualsiasi ticket precedente per lo stesso studente.
+      const { error: revokeExistingTicketError } = await admin
+        .from("registration_authorizations")
+        .update({ revoked_at: now.toISOString() })
+        .eq("student_email", email)
+        .is("consumed_at", null)
+        .is("revoked_at", null);
+
+      if (revokeExistingTicketError) {
+        await admin
+          .from("parental_consent_requests")
+          .update({ status: "invite_failed" })
+          .eq("id", savedRequest.id);
+        console.error("[Registration request] Could not revoke previous tickets", revokeExistingTicketError.code);
+        return jsonError("Non è stato possibile mettere in sicurezza la richiesta. Riprova più tardi.", 503);
+      }
+
       const approvalUrl = new URL("/consenso-genitore", getPublicSiteUrl());
       approvalUrl.searchParams.set("token", approvalToken);
       const safeName = escapeHtml(displayName);
