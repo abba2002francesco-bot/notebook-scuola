@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       const now = new Date();
       const { data: found, error: lookupError } = await admin
         .from("parental_consent_requests")
-        .select("id, status, expires_at, guardian_declaration_accepted, approved_at")
+        .select("id, status, expires_at, guardian_declaration_accepted, approved_at, auth_user_id")
         .eq("approval_token_hash", hashToken(token))
         .maybeSingle();
 
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
     const now = new Date();
     const { data: found, error: lookupError } = await admin
       .from("parental_consent_requests")
-      .select("id, child_display_name, child_email, guardian_email, status, expires_at, guardian_declaration_accepted, approved_at")
+      .select("id, child_display_name, child_email, guardian_email, status, expires_at, guardian_declaration_accepted, approved_at, auth_user_id")
       .eq("approval_token_hash", hashToken(token))
       .maybeSingle();
 
@@ -124,6 +124,13 @@ export async function POST(request: NextRequest) {
     }
     if (!found || new Date(found.expires_at).getTime() <= now.getTime()) {
       return jsonError("Il collegamento non è valido o è scaduto. Richiedi un nuovo invito.", 410);
+    }
+
+    if (found.auth_user_id) {
+      return NextResponse.json({
+        status: "account_created",
+        message: "L'account dello studente è già stato creato. Ora deve soltanto confermare il proprio indirizzo email, se non lo ha ancora fatto.",
+      });
     }
 
     let approvedRequest = found;
@@ -141,7 +148,7 @@ export async function POST(request: NextRequest) {
         .eq("id", found.id)
         .eq("status", "pending")
         .gt("expires_at", now.toISOString())
-        .select("id, child_display_name, child_email, guardian_email, status, expires_at, guardian_declaration_accepted, approved_at")
+        .select("id, child_display_name, child_email, guardian_email, status, expires_at, guardian_declaration_accepted, approved_at, auth_user_id")
         .maybeSingle();
 
       if (updateError) {
@@ -154,7 +161,7 @@ export async function POST(request: NextRequest) {
       } else {
         const { data: latest, error: latestError } = await admin
           .from("parental_consent_requests")
-          .select("id, child_display_name, child_email, guardian_email, status, expires_at, guardian_declaration_accepted, approved_at")
+          .select("id, child_display_name, child_email, guardian_email, status, expires_at, guardian_declaration_accepted, approved_at, auth_user_id")
           .eq("id", found.id)
           .maybeSingle();
 
