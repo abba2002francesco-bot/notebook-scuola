@@ -272,7 +272,7 @@ function ConsentRegisterPage() {
   );
 }
 
-const CONSENT_REGISTRATION_ENABLED = false;
+const CONSENT_REGISTRATION_ENABLED = true;
 
 function LegacyRegisterPage() {
   const router = useRouter();
