@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
       }
 
       const approvalUrl = new URL("/consenso-genitore", getPublicSiteUrl());
-      approvalUrl.searchParams.set("token", approvalToken);
+      approvalUrl.hash = new URLSearchParams({ token: approvalToken }).toString();
       const safeName = escapeHtml(displayName);
       const safeUrl = escapeHtml(approvalUrl.toString());
 
