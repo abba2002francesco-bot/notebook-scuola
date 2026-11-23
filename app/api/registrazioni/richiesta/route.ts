@@ -102,6 +102,35 @@ export async function POST(request: NextRequest) {
     const admin = createSupabaseAdmin();
     const now = new Date();
 
+    // Vercel sovrascrive X-Forwarded-For con l'IP pubblico del client.
+    // Conserviamo soltanto hash, non l'indirizzo IP in chiaro.
+    const clientIp = (request.headers.get("x-forwarded-for") || "unknown")
+      .split(",")[0]
+      .trim() || "unknown";
+
+    const { data: baseRateAllowed, error: baseRateError } = await admin.rpc(
+      "take_registration_rate_limit",
+      {
+        p_keys: [
+          hashToken(`ip:${clientIp}`),
+          hashToken(`student:${email}`),
+        ],
+        p_max_requests: 8,
+        p_window_seconds: 3600,
+      },
+    );
+
+    if (baseRateError) {
+      console.error("[Registration request] Rate limit check failed", baseRateError.code);
+      return jsonError("Il servizio di registrazione è momentaneamente non disponibile.", 503);
+    }
+    if (baseRateAllowed !== true) {
+      return NextResponse.json(
+        { error: "Hai effettuato troppe richieste. Riprova tra circa un'ora." },
+        { status: 429, headers: { "Retry-After": "3600" } },
+      );
+    }
+
     if (age < 14) {
       // Marca come scadute le richieste precedenti: la vecchia riga non deve impedire un nuovo invito.
       const { error: expireOldRequestsError } = await admin
@@ -150,6 +179,26 @@ export async function POST(request: NextRequest) {
       }
       if (guardianEmail === email) {
         return jsonError("L'email del genitore deve essere diversa da quella dello studente.", 400);
+      }
+
+      const { data: guardianRateAllowed, error: guardianRateError } = await admin.rpc(
+        "take_registration_rate_limit",
+        {
+          p_keys: [hashToken(`guardian:${guardianEmail}`)],
+          p_max_requests: 4,
+          p_window_seconds: 3600,
+        },
+      );
+
+      if (guardianRateError) {
+        console.error("[Registration request] Guardian rate limit check failed", guardianRateError.code);
+        return jsonError("Il servizio di registrazione è momentaneamente non disponibile.", 503);
+      }
+      if (guardianRateAllowed !== true) {
+        return NextResponse.json(
+          { error: "Sono già state inviate diverse richieste a questo indirizzo. Riprova più tardi." },
+          { status: 429, headers: { "Retry-After": "3600" } },
+        );
       }
 
       const approvalToken = createOpaqueToken();
