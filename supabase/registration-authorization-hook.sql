@@ -126,7 +126,16 @@ BEGIN
     AND ra.consumed_at IS NULL
     AND ra.revoked_at IS NULL
     AND (
-      ra.authorization_type = 'age_14_plus'
+      (
+        ra.authorization_type = 'age_14_plus'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM public.parental_consent_requests AS pending_consent
+          WHERE lower(btrim(pending_consent.child_email)) = v_email
+            AND pending_consent.status IN ('pending', 'approved', 'invite_sent', 'invite_failed')
+            AND pending_consent.expires_at > pg_catalog.now()
+        )
+      )
       OR (
         ra.authorization_type = 'parental_consent'
         AND EXISTS (
