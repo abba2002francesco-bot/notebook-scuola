@@ -208,7 +208,46 @@ DECLARE
 BEGIN
   v_ticket_text := nullif(NEW.raw_user_meta_data->>'registration_ticket', '');
 
-  IF v_ticket_text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12} THEN
+  IF v_ticket_text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}
+    v_ticket_id := v_ticket_text::uuid;
+
+    UPDATE public.registration_authorizations AS ra
+    SET consumed_by_auth_user_id = NEW.id
+    WHERE ra.id = v_ticket_id
+      AND ra.student_email = lower(coalesce(NEW.email, ''))
+      AND ra.consumed_at IS NOT NULL
+      AND ra.consumed_by_auth_user_id IS NULL
+    RETURNING ra.parental_consent_request_id INTO v_parent_request_id;
+
+    IF v_parent_request_id IS NOT NULL THEN
+      UPDATE public.parental_consent_requests AS consent
+      SET auth_user_id = NEW.id
+      WHERE consent.id = v_parent_request_id
+        AND lower(btrim(consent.child_email)) = lower(coalesce(NEW.email, ''))
+        AND consent.guardian_declaration_accepted IS TRUE
+        AND consent.approved_at IS NOT NULL;
+    END IF;
+  END IF;
+
+  IF coalesce(NEW.raw_user_meta_data, '{}'::jsonb) ? 'registration_ticket' THEN
+    UPDATE auth.users
+    SET raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) - 'registration_ticket'
+    WHERE id = NEW.id;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE EXECUTE
+  ON FUNCTION public.link_registration_authorization_to_new_user()
+  FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS on_registration_authorization_user_created ON auth.users;
+CREATE TRIGGER on_registration_authorization_user_created
+AFTER INSERT ON auth.users
+FOR EACH ROW EXECUTE FUNCTION public.link_registration_authorization_to_new_user();
+ THEN
     v_ticket_id := v_ticket_text::uuid;
 
     UPDATE public.registration_authorizations AS ra
