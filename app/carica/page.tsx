@@ -181,7 +181,22 @@ export default function UploadPage() {
       router.push(`/notebook/${data.id}?created=1`);
     } catch (caught) {
       if (paths.length) await supabase.storage.from("notebook-images").remove(paths);
-      setError(`Pubblicazione non riuscita: ${caught instanceof Error ? caught.message : "errore imprevisto"}`);
+      const dbError = typeof caught === "object" && caught !== null
+        ? caught as { code?: unknown; message?: unknown }
+        : null;
+      const errorCode = typeof dbError?.code === "string" ? dbError.code : "";
+      const errorMessage = typeof dbError?.message === "string"
+        ? dbError.message
+        : caught instanceof Error ? caught.message : "";
+      console.error("[Notebook publish] failed", {
+        code: errorCode || "unknown",
+        message: errorMessage.slice(0, 300),
+      });
+      if (errorCode === "23505" || /notebooks_url_unique|duplicate key/i.test(errorMessage)) {
+        setError("Questo link NotebookLM è già stato pubblicato su Notebook Scuola. Per evitare doppioni non è possibile creare una seconda scheda con lo stesso link. Cerca il notebook nel catalogo e modifica la scheda esistente, se è tua.");
+      } else {
+        setError(`Pubblicazione non riuscita: ${errorMessage || "errore non identificato. Riprova e, se persiste, contatta l'assistenza."}`);
+      }
     } finally { setBusy(false); }
   }
 
