@@ -243,6 +243,7 @@ export async function generateNotebookSuggestions(input: {
   sources: Array<{ displayName: string; mimeType: string; state: string }>;
   subjects: string[];
   levels: string[];
+  contentTypes: string[];
 }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
@@ -256,8 +257,12 @@ export async function generateNotebookSuggestions(input: {
       topic: { type: "string" },
       description: { type: "string" },
       tags: { type: "array", items: { type: "string" } },
+      content_types: {
+        type: "array",
+        items: { type: "string", enum: input.contentTypes },
+      },
     },
-    required: ["subject", "education_level", "topic", "description", "tags"],
+    required: ["subject", "education_level", "topic", "description", "tags", "content_types"],
   };
 
   const prompt = [
@@ -267,9 +272,11 @@ export async function generateNotebookSuggestions(input: {
     "Argomento: formula un'etichetta breve e precisa, non una frase generica.",
     "DESCRIZIONE: scrivi 2 frasi scorrevoli, circa 180-320 caratteri complessivi. Spiega direttamente quale tema di studio tratta il notebook e quali aspetti suggeriti dal titolo e dai nomi delle fonti vengono affrontati. Rivolgiti implicitamente a uno studente: la descrizione deve aiutarlo a capire cosa troverà e perché può essergli utile per studiare o ripassare.",
     "Non parlare del processo con cui hai generato la descrizione e non menzionare limiti, metadati, file, nomi delle fonti o il fatto che non hai letto i documenti. Sono vietate formule come 'questa bozza', 'si basa esclusivamente', 'non è possibile dedurre', 'non disponendo del contenuto integrale', 'dai soli metadati'. Se gli indizi sono pochi, resta generale ma concreta: descrivi il tema evidente senza aggiungere dettagli non dimostrati. Non descrivere il formato delle fonti (per esempio 'serie di schermate') a meno che il formato sia esso stesso rilevante per il tema.",
-    "Crea 3-6 tag brevi e pertinenti, senza duplicati. Le categorie di artefatti (audio, quiz, flashcard, mappe ecc.) non sono deducibili dai metadati e non vanno inventate: saranno scelte manualmente dall'autore.",
+    "Crea 3-6 tag brevi e pertinenti, senza duplicati.",
+    "CHE COSA CONTIENE?: scegli zero o più categorie soltanto tra quelle fornite. Usa esclusivamente indizi forti presenti nei nomi e nei tipi MIME delle fonti in stato ACTIVE: Audio solo per fonti audio (MIME audio/* o nome inequivocabile); Video solo per fonti video/YouTube; Quiz solo se il titolo della fonte indica chiaramente quiz, test o questionario; Flashcard solo se indica chiaramente flashcard o schede di memoria; Mappa mentale solo se indica chiaramente una mappa mentale; Guida solo se indica chiaramente una guida; Sintesi solo se indica chiaramente una sintesi, un riassunto o appunti riassuntivi. Non dedurre una categoria dal solo argomento scolastico. Se non ci sono prove chiare, restituisci un array vuoto.",
+    "IMPORTANTE: stai vedendo solo la lista delle fonti importate (titolo, MIME e stato), non il loro testo integrale e non gli artefatti generati nel pannello Studio di NotebookLM. Non affermare di aver verificato questi artefatti e non inventare categorie.",
     "Restituisci esclusivamente i campi richiesti dallo schema JSON.",
-    JSON.stringify({ title: input.title, subjects: input.subjects, levels: input.levels, sources: input.sources }),
+    JSON.stringify({ title: input.title, subjects: input.subjects, levels: input.levels, contentTypes: input.contentTypes, sources: input.sources }),
   ].join("\n\n");
 
   const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
@@ -303,6 +310,7 @@ export async function generateNotebookSuggestions(input: {
     topic?: string;
     description?: string;
     tags?: string[];
+    content_types?: string[];
   };
   const subject = input.subjects.includes(parsed.subject || "") ? parsed.subject! : "Altro";
   const educationLevel = input.levels.includes(parsed.education_level || "") ? parsed.education_level! : "Altro";
@@ -315,5 +323,8 @@ export async function generateNotebookSuggestions(input: {
     topic: String(parsed.topic || "").trim().slice(0, 80),
     description: String(parsed.description || "").trim().slice(0, 1200),
     tags,
+    content_types: Array.isArray(parsed.content_types)
+      ? [...new Set(parsed.content_types.filter((item) => input.contentTypes.includes(item)))].slice(0, input.contentTypes.length)
+      : [],
   };
 }

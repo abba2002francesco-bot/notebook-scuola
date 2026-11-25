@@ -19,6 +19,7 @@ export const maxDuration = 30;
 
 const SUBJECTS = ["Matematica", "Fisica", "Italiano", "Storia", "Inglese", "Filosofia", "Chimica", "Biologia", "Informatica", "Economia", "Diritto", "Arte", "Geografia", "Scienze", "Altro"];
 const LEVELS = ["Medie", "Superiori", "Università", "Altro"];
+const CONTENT_TYPES = ["Audio", "Video", "Quiz", "Flashcard", "Mappa mentale", "Guida", "Sintesi"];
 
 export async function POST(request: NextRequest) {
   try {
@@ -104,6 +105,7 @@ export async function POST(request: NextRequest) {
           sources: sourceMetadata.slice(0, 100),
           subjects: SUBJECTS,
           levels: LEVELS,
+          contentTypes: CONTENT_TYPES,
         });
         if (!suggestions) aiWarning = "Titolo e fonti letti correttamente. Per attivare i suggerimenti AI aggiungi GEMINI_API_KEY su Vercel.";
       } catch (aiError) {
@@ -124,7 +126,7 @@ export async function POST(request: NextRequest) {
       sources: sourceMetadata.slice(0, 40),
       suggestions,
       aiWarning,
-      metadataNote: "Google ha restituito i metadati delle fonti (nome, tipo e stato), non il testo integrale dei documenti né gli artefatti generati.",
+      metadataNote: "Google restituisce i metadati delle fonti (nome, tipo e stato), non il testo integrale dei documenti né l'elenco degli artefatti generati nel pannello Studio. Le categorie suggerite dall'AI sono indizi da verificare, non una conferma degli artefatti presenti.",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Non è stato possibile leggere il notebook.";

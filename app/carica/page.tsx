@@ -18,7 +18,7 @@ type InspectResponse = {
   title?: string;
   source_count?: number;
   sources?: SourcePreview[];
-  suggestions?: { subject?: string; education_level?: string; topic?: string; description?: string; tags?: string[] } | null;
+  suggestions?: { subject?: string; education_level?: string; topic?: string; description?: string; tags?: string[]; content_types?: string[] } | null;
   aiWarning?: string | null;
   metadataNote?: string;
 };
@@ -145,8 +145,11 @@ export default function UploadPage() {
         description: data.suggestions?.description || current.description,
         tags: data.suggestions?.tags?.join(", ") ?? current.tags,
       }));
+      if (data.suggestions) {
+        setContentTypes(data.suggestions.content_types?.filter((item) => CONTENT_TYPES.includes(item)) ?? []);
+      }
       if (data.aiWarning) setGoogleMessage(data.aiWarning);
-      else setGoogleMessage("Titolo e numero delle fonti letti da Google; materia, argomento, descrizione e tag sono suggerimenti AI da controllare.");
+      else setGoogleMessage("Titolo e numero delle fonti letti da Google; materia, argomento, descrizione, tag e categorie “Che cosa contiene?” sono suggerimenti AI da controllare.");
       if (data.metadataNote) setGoogleMessage((current) => `${current} ${data.metadataNote}`);
     } catch (caught) {
       setGoogleError(caught instanceof Error ? caught.message : "Non è stato possibile completare la lettura.");
@@ -207,7 +210,7 @@ export default function UploadPage() {
     <div className="container page">
       <div className="breadcrumb"><Link href="/">Esplora</Link><span>›</span><span>Condividi un notebook</span></div>
       <div className="panel form-panel">
-        <div className="form-heading"><span className="eyebrow"><UploadCloud size={14} /> Condividi con la community</span><h1>Pubblica il tuo notebook</h1><p>Incolla il link pubblico. Google può leggere il titolo e contare le fonti; con il tuo consenso, Gemini propone una bozza dei campi descrittivi da controllare.</p></div>
+        <div className="form-heading"><span className="eyebrow"><UploadCloud size={14} /> Condividi con la community</span><h1>Pubblica il tuo notebook</h1><p>Incolla il link pubblico. Google legge il titolo e l'elenco delle fonti; con il tuo consenso, Gemini propone materia, argomento, descrizione, tag e possibili categorie per “Che cosa contiene?”, da verificare prima della pubblicazione.</p></div>
 
         <form onSubmit={submit}>
           <div className="field full"><label htmlFor="url"><Link2 size={14} style={{ verticalAlign: "-2px", marginRight: 5 }} />Link pubblico NotebookLM *</label><input id="url" type="url" required placeholder="https://notebooklm.link.google/…" value={form.url} onChange={(event) => update("url", event.target.value)} /><small>In NotebookLM abilita l'accesso pubblico prima di copiare il link.</small></div>
@@ -221,7 +224,7 @@ export default function UploadPage() {
           <p style={{ margin: "0 0 12px", lineHeight: 1.55 }}>Durante la Public Preview della Gemini Notebook API sono supportati soltanto gli account Google personali, non gli account Google Workspace scolastici. È inoltre necessario aver già aperto almeno una volta Gemini Notebook/NotebookLM con lo stesso account Google. Prima di collegare Google, leggi l'<Link href="/privacy" style={{ color: "var(--accent)", fontWeight: 700 }}>informativa privacy</Link>.</p>
           <label className="check-chip" style={{ alignItems: "flex-start", lineHeight: 1.5, marginBottom: 12 }}>
             <input type="checkbox" checked={aiConsent} onChange={(event) => setAiConsent(event.target.checked)} />
-            <span>Autorizzo l'invio a Gemini del titolo e dei nomi, tipi e stati delle fonti per suggerire materia, argomento, descrizione e tag. I testi integrali dei documenti non vengono inviati. Nel livello gratuito di Gemini API i prompt possono essere usati da Google per migliorare i prodotti; non inserire dati personali o riservati.</span>
+            <span>Autorizzo l'invio a Gemini del titolo e dei nomi, tipi e stati delle fonti per suggerire materia, argomento, descrizione, tag e categorie per “Che cosa contiene?”. I testi integrali dei documenti e gli artefatti generati nel pannello Studio non vengono letti né inviati. Nel livello gratuito di Gemini API i prompt possono essere usati da Google per migliorare i prodotti; non inserire dati personali o riservati.</span>
           </label>
           <div className="form-actions" style={{ marginTop: 0 }}>
             {!googleConnected ? <button type="button" className="button button-secondary" onClick={connectGoogle} disabled={googleBusy || googleStatusLoading}>{googleBusy ? <LoaderCircle size={15} /> : <Link2 size={15} />}Collega account Google</button> : <button type="button" className="button button-secondary" onClick={disconnectGoogle} disabled={googleBusy}><LogOut size={15} />Scollega Google</button>}
@@ -231,7 +234,7 @@ export default function UploadPage() {
           {googleMessage && <div className="alert alert-success" style={{ marginBottom: 0 }} role="status">{googleMessage}</div>}
           {googleError && <div className="alert alert-error" style={{ marginBottom: 0 }} role="alert">{googleError}</div>}
           {sourcePreview.length > 0 && <details style={{ marginTop: 12 }}><summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 700 }}>Visualizza le {sourcePreview.length} fonti lette</summary><ul style={{ margin: "10px 0 0", paddingLeft: 20, fontSize: 12, lineHeight: 1.7 }}>{sourcePreview.map((source, index) => <li key={`${source.displayName}-${index}`}>{source.displayName} <span style={{ color: "var(--muted)" }}>({source.mimeType}, {source.state})</span></li>)}</ul></details>}
-          <small style={{ display: "block", marginTop: 10, lineHeight: 1.5 }}>Il numero di fonti e il titolo vengono letti da Google. Le categorie Audio, Video, Quiz e Flashcard vanno verificate e selezionate manualmente. Puoi lasciare deselezionata l'autorizzazione AI e compilare gli altri campi a mano.</small>
+          <small style={{ display: "block", marginTop: 10, lineHeight: 1.5 }}>Il numero di fonti e il titolo vengono letti da Google. Con il consenso AI, Gemini usa i metadati della lista delle fonti per suggerire anche le categorie; non legge il testo integrale dei documenti e non può verificare gli artefatti prodotti da NotebookLM Studio. Puoi lasciare deselezionata l'autorizzazione AI e compilare i campi a mano.</small>
         </section>
           <div className="field full"><label htmlFor="title">Titolo del notebook *</label><input id="title" required minLength={4} maxLength={100} placeholder="Es. Rivoluzione francese — ripasso completo" value={form.title} onChange={(event) => update("title", event.target.value)} /></div>
           <div className="form-grid">
@@ -241,7 +244,7 @@ export default function UploadPage() {
             <div className="field"><label>Argomento</label><input maxLength={80} placeholder="Es. Prima guerra mondiale" value={form.topic} onChange={(event) => update("topic", event.target.value)} /></div>
             <div className="field"><label>Indirizzo scolastico (facoltativo)</label><input maxLength={80} placeholder="Es. Liceo scientifico" value={form.school} onChange={(event) => update("school", event.target.value)} /><small>Evita il nome preciso della scuola e dati personali.</small></div>
           </div>
-          <div className="field full"><label>Che cosa contiene?</label><div className="checkbox-grid">{CONTENT_TYPES.map((item) => <label className="check-chip" key={item}><input type="checkbox" checked={contentTypes.includes(item)} onChange={() => toggle(item)} />{item}</label>)}</div><small>Seleziona soltanto gli strumenti/artefatti effettivamente presenti nel notebook. L'API Google non fornisce questo elenco.</small></div>
+          <div className="field full"><label>Che cosa contiene?</label><div className="checkbox-grid">{CONTENT_TYPES.map((item) => <label className="check-chip" key={item}><input type="checkbox" checked={contentTypes.includes(item)} onChange={() => toggle(item)} />{item}</label>)}</div><small>Gemini può suggerire categorie quando i nomi o i tipi delle fonti danno indizi chiari. L'API Google non espone l'elenco degli artefatti generati nel pannello Studio: controlla e correggi sempre le selezioni.</small></div>
           <div className="field full"><label>Tag</label><input placeholder="Es. maturità, algebra, verifica (separati da virgola)" value={form.tags} onChange={(event) => update("tags", event.target.value)} /><small>Massimo 10 tag.</small></div>
           <div className="field full"><label htmlFor="description">Descrizione *</label><textarea id="description" required minLength={20} maxLength={1200} placeholder="Spiega cosa si trova nel notebook, quali argomenti tratta e a chi può essere utile…" value={form.description} onChange={(event) => update("description", event.target.value)} /><small>{form.description.length}/1200 caratteri. Controlla sempre la bozza AI prima di pubblicare.</small></div>
           <div className="field full"><label><ImagePlus size={14} style={{ verticalAlign: "-2px", marginRight: 5 }} />Immagini di anteprima (facoltative)</label><div className="upload-zone"><ImagePlus size={24} /><div style={{ marginTop: 8, fontWeight: 700, color: "var(--ink)", fontSize: 13 }}>Mostra cosa troveranno nel notebook</div><div style={{ fontSize: 12, marginTop: 4 }}>Fino a 4 immagini JPG, PNG o WebP · massimo 4 MB ciascuna</div><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 4))} /></div>{files.length > 0 && <small>{files.length} immagini selezionate: {files.map((file) => file.name).join(", ")}</small>}</div>
