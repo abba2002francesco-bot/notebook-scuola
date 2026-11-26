@@ -25,10 +25,23 @@ export const metadata: Metadata = {
   },
 };
 
+const websiteJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "Notebook Scuola",
+  alternateName: "NotebookScuola",
+  url: "https://notebookscuola.it",
+  description: "Scopri, cerca e condividi notebook di NotebookLM per scuola e università.",
+};
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="it">
       <body>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd).replace(/</g, "\\u003c") }}
+        />
         <AuthProvider>
           <Header />
           <main>{children}</main>
