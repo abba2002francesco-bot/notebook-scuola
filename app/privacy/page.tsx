@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Informativa privacy | Notebook Scuola",
   description: "Informativa sul trattamento dei dati personali e sull’uso facoltativo dei servizi Google e Gemini in Notebook Scuola.",
+  alternates: { canonical: "/privacy" },
 };
 
 const updatedAt = "23 novembre 2026";

@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-const siteUrl = "https://free-notebooks.vercel.app";
+const siteUrl = "https://notebookscuola.it";
 
 export default function robots(): MetadataRoute.Robots {
   return {

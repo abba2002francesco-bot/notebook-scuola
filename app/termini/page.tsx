@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Termini di servizio | Notebook Scuola",
   description: "Termini di utilizzo della community indipendente Notebook Scuola.",
+  alternates: { canonical: "/termini" },
 };
 
 const updatedAt = "23 novembre 2026";
