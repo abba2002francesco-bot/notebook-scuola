@@ -314,6 +314,63 @@ grant execute on function public.match_study_source_chunks(
   uuid, uuid, extensions.vector, integer, double precision, text
 ) to service_role;
 
+-- Creazione notebook con quota applicata atomicamente.
+-- L'advisory transaction lock evita che richieste simultanee superino il limite beta.
+create or replace function public.create_study_workspace_with_quota(
+  p_user_id uuid,
+  p_title text,
+  p_subject text default null,
+  p_education_level text default null,
+  p_description text default null
+)
+returns public.study_workspaces
+language plpgsql
+security invoker
+set search_path = ''
+as $function$
+declare
+  v_count integer;
+  v_workspace public.study_workspaces;
+begin
+  if p_user_id is null then
+    raise exception using errcode = '22004', message = 'USER_ID_REQUIRED';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(p_user_id::text, 0)
+  );
+
+  select count(*)::integer
+    into v_count
+  from public.study_workspaces as w
+  where w.user_id = p_user_id;
+
+  if v_count >= 5 then
+    raise exception using
+      errcode = 'P0001',
+      message = 'STUDY_WORKSPACE_LIMIT_REACHED';
+  end if;
+
+  insert into public.study_workspaces (
+    user_id, title, subject, education_level, description
+  )
+  values (
+    p_user_id, p_title, p_subject, p_education_level, p_description
+  )
+  returning * into v_workspace;
+
+  return v_workspace;
+end;
+$function$;
+
+revoke all on function public.create_study_workspace_with_quota(
+  uuid, text, text, text, text
+) from public, anon, authenticated;
+
+grant execute on function public.create_study_workspace_with_quota(
+  uuid, text, text, text, text
+) to service_role;
+
 -- Bucket privato per documenti originali. 20 MiB per file nella beta.
 insert into storage.buckets (
   id, name, public, file_size_limit, allowed_mime_types
