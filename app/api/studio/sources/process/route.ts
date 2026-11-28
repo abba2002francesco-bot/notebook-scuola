@@ -224,38 +224,65 @@ function extractPowerPoint(bytes: Uint8Array): { pages: ExtractedPage[]; pageCou
     throw new SourceProcessingError("La presentazione PowerPoint è danneggiata o non leggibile.", "invalid_office_archive");
   }
 
-  if (!archive["ppt/presentation.xml"]) {
+  const presentationBytes = archive["ppt/presentation.xml"];
+  const relationshipsBytes = archive["ppt/_rels/presentation.xml.rels"];
+  if (!presentationBytes || !relationshipsBytes) {
     throw new SourceProcessingError("Il file non contiene una presentazione PPTX valida.", "unsupported_document");
   }
 
-  const slideEntries = Object.keys(archive)
-    .map((name) => {
-      const match = name.match(/^ppt\/slides\/slide(\d+)\.xml$/);
-      return match ? { name, number: Number(match[1]) } : null;
-    })
-    .filter((entry): entry is { name: string; number: number } => Boolean(entry))
-    .sort((a, b) => a.number - b.number);
+  const presentationXml = new TextDecoder().decode(presentationBytes);
+  const relationshipsXml = new TextDecoder().decode(relationshipsBytes);
+  const readAttribute = (tag: string, name: string) => {
+    const pattern = new RegExp(name + "\\s*=\\s*(['\"])(.*?)\\1");
+    return tag.match(pattern)?.[2] ?? null;
+  };
 
-  if (slideEntries.length < 1 || slideEntries.length > MAX_PAGES) {
+  const relationshipTargets = new Map<string, string>();
+  for (const match of relationshipsXml.matchAll(/<Relationship\b[^>]*>/g)) {
+    const id = readAttribute(match[0], "Id");
+    const target = readAttribute(match[0], "Target");
+    if (id && target) relationshipTargets.set(id, decodeXml(target));
+  }
+
+  const orderedSlidePaths: string[] = [];
+  for (const match of presentationXml.matchAll(/<p:sldId\b[^>]*>/g)) {
+    const relationshipId = readAttribute(match[0], "r:id");
+    const target = relationshipId ? relationshipTargets.get(relationshipId) : null;
+    if (!target) {
+      throw new SourceProcessingError("Non è stato possibile ricostruire l'ordine delle diapositive.", "unsupported_document");
+    }
+
+    const normalizedTarget = target.replace(/^\/+/, "");
+    const archivePath = normalizedTarget.startsWith("ppt/")
+      ? normalizedTarget
+      : "ppt/" + normalizedTarget;
+
+    if (!archive[archivePath] || !/^ppt\/slides\/slide\d+\.xml$/.test(archivePath)) {
+      throw new SourceProcessingError("La presentazione contiene un riferimento a una diapositiva non valida.", "invalid_office_archive");
+    }
+    orderedSlidePaths.push(archivePath);
+  }
+
+  if (orderedSlidePaths.length < 1 || orderedSlidePaths.length > MAX_PAGES) {
     throw new SourceProcessingError("La presentazione non contiene diapositive leggibili o supera il limite beta.", "unsupported_document");
   }
 
-  const pages = slideEntries.flatMap((slide, pageIndex) => {
-    const xml = new TextDecoder().decode(archive[slide.name]);
+  const pages = orderedSlidePaths.flatMap((slidePath, pageIndex) => {
+    const xml = new TextDecoder().decode(archive[slidePath]);
     const raw = xml
       .replace(/<\/a:p>/g, "\n")
       .replace(/<a:t\b[^>]*>/g, "")
       .replace(/<\/a:t>/g, "")
       .replace(/<[^>]+>/g, "");
     const text = normalizeText(decodeXml(raw));
-    return text ? [{ page_index: pageIndex, page_number: slide.number, text }] : [];
+    return text ? [{ page_index: pageIndex, page_number: pageIndex + 1, text }] : [];
   });
 
   if (pages.length === 0) {
     throw new SourceProcessingError("La presentazione non contiene testo estraibile.", "no_text_content");
   }
 
-  return { pages, pageCount: slideEntries.length };
+  return { pages, pageCount: orderedSlidePaths.length };
 }
 
 async function extractPdf(bytes: Uint8Array): Promise<{ pages: ExtractedPage[]; pageCount: number }> {
