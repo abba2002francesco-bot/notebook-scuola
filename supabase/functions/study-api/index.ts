@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.80.0";
 
 // L'identità resta quella del progetto Auth già usato da Notebook Scuola.
 const PRIMARY_AUTH_URL = "https://wjdaeyerqkqebhtslgjm.supabase.co";
-const PRIMARY_AUTH_PUBLISHABLE_KEY = "sb_publishable_AdqGMjewmnG5ghUThnpWvA";
+const PRIMARY_AUTH_PUBLISHABLE_KEY = "sb_publishable_AdqGMjewmnG5ghUThnpWvA_4e2F520J";
 
 const STUDY_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const secretKeys = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}");
