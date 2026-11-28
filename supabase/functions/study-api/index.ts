@@ -276,44 +276,40 @@ async function createSource(request: Request, userId: string) {
 
   if (workspaceError || !workspace) return json({ error: "Notebook non trovato." }, 404);
 
-  const { data: existing, error: quotaError } = await studyAdmin
-    .from("study_sources")
-    .select("byte_size")
-    .eq("workspace_id", workspaceId)
-    .eq("user_id", userId)
-    .limit(MAX_SOURCES_PER_WORKSPACE + 1);
-
-  if (quotaError) return json({ error: "Non è stato possibile verificare lo spazio disponibile." }, 500);
-  const existingBytes = (existing ?? []).reduce((total, item) => total + Number(item.byte_size || 0), 0);
-  if ((existing?.length ?? 0) >= MAX_SOURCES_PER_WORKSPACE) {
-    return json({ error: "Nella beta puoi caricare al massimo 25 documenti per notebook." }, 429);
-  }
-  if (existingBytes + byteSize > MAX_WORKSPACE_BYTES) {
-    return json({ error: "Hai raggiunto il limite beta di 100 MB per questo notebook." }, 429);
-  }
-
   const sourceId = crypto.randomUUID();
   const storagePath = userId + "/" + workspaceId + "/" + sourceId + "/" + safeFilename(filename);
   const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
 
-  const { data: inserted, error: insertError } = await studyAdmin
-    .from("study_sources")
-    .insert({
-      id: sourceId,
-      workspace_id: workspaceId,
-      user_id: userId,
-      original_filename: filename,
-      storage_path: storagePath,
-      mime_type: mimeType,
-      byte_size: byteSize,
-      status: "uploaded",
-      upload_expires_at: expiresAt,
-    })
-    .select(SOURCE_SELECT)
-    .single();
+  const { data: insertedData, error: insertError } = await studyAdmin.rpc("create_study_source_with_quota", {
+    p_user_id: userId,
+    p_workspace_id: workspaceId,
+    p_source_id: sourceId,
+    p_filename: filename,
+    p_storage_path: storagePath,
+    p_mime_type: mimeType,
+    p_byte_size: byteSize,
+    p_upload_expires_at: expiresAt,
+  });
 
-  if (insertError || !inserted) {
-    console.error("[study-api] create source record failed", insertError?.code ?? "unknown");
+  if (insertError) {
+    if (insertError.message?.includes("STUDY_WORKSPACE_NOT_FOUND")) {
+      return json({ error: "Notebook non trovato." }, 404);
+    }
+    if (insertError.message?.includes("STUDY_SOURCE_LIMIT_REACHED")) {
+      return json({ error: "Nella beta puoi caricare al massimo 25 documenti per notebook." }, 429);
+    }
+    if (insertError.message?.includes("STUDY_WORKSPACE_FILE_LIMIT_REACHED")) {
+      return json({ error: "Hai raggiunto il limite beta di 100 MB per questo notebook." }, 429);
+    }
+    if (insertError.message?.includes("STUDY_SOURCE_SIZE_INVALID")) {
+      return json({ error: "Ogni documento deve pesare al massimo 20 MB." }, 413);
+    }
+    console.error("[study-api] create source record failed", insertError.code ?? "unknown");
+    return json({ error: "Non è stato possibile preparare il caricamento." }, 500);
+  }
+
+  const inserted = Array.isArray(insertedData) ? insertedData[0] : insertedData;
+  if (!inserted) {
     return json({ error: "Non è stato possibile preparare il caricamento." }, 500);
   }
 
