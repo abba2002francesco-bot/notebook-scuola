@@ -299,8 +299,6 @@ async function extractPdf(bytes: Uint8Array): Promise<{ pages: ExtractedPage[]; 
     }
 
     return { pages, pageCount };
-  } finally {
-    // PDFDocumentProxy non espone destroy(); il runtime libera la memoria a fine richiesta.
   }
 }
 
