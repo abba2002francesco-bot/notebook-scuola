@@ -247,14 +247,14 @@ grant select on
   public.study_usage_events
 to authenticated;
 
-revoke insert, update, delete on
+revoke all on
   public.study_workspaces,
   public.study_sources,
   public.study_source_chunks,
   public.study_conversations,
   public.study_messages,
   public.study_usage_events
-from anon, authenticated;
+from public, anon, authenticated;
 
 grant all on
   public.study_workspaces,
