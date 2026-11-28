@@ -166,3 +166,37 @@ Il catalogo Gateway specifica che `mistral/mistral-small` attualmente esegue Mis
 Esempio puramente comparativo: 1.000 richieste con 10.000 token input e 1.000 token output ciascuna costerebbero circa $2,10 con Mistral Small 4, $4,40 con Gemini 3.1 Flash Lite su Vertex EU e $1,40 con Gemini 2.5 Flash Lite su Vertex EU. Non include embedding, eventuali caching, imposte o altre componenti. Il modello più economico non è automaticamente quello da scegliere: la decisione dipende dal benchmark didattico.
 
 Per gli embedding, il catalogo Gateway espone `mistral/mistral-embed` a $0,10 per milione di token; la documentazione Mistral dichiara 1024 dimensioni. La proposta SQL ora memorizza la dimensione di ogni embedding separatamente, invece di fissare il tipo vector a 1024: questa scelta evita di legare definitivamente l'architettura a un unico embedding model. Il modello iniziale proposto resta Mistral Embed, da verificare su testi scolastici italiani.
+
+
+## Ambiente di sviluppo creato e schema applicato — 28 novembre 2026
+
+Il progetto Supabase separato `notebook-scuola-ai-dev` è stato creato nell'organizzazione esistente, nella regione `eu-west-1`, con preventivo di creazione $0/mese. Project ref: `bgdocyhfcejbutnvsyxl`. È `ACTIVE_HEALTHY`.
+
+La prima struttura di studio è stata applicata a questo progetto vuoto, non al database in produzione. Sono presenti sei tabelle nuove:
+- `study_workspaces`
+- `study_sources`
+- `study_source_chunks`
+- `study_conversations`
+- `study_messages`
+- `study_usage_events`
+
+È installato pgvector 0.8.2 nello schema `extensions`. Il bucket `study-source-files` è privato, ammette PDF/DOCX/PPTX ed è limitato a 20 MiB per file.
+
+### Verifiche svolte
+
+- Tutte e sei le tabelle hanno RLS attivo e una policy SELECT per il proprietario.
+- Le scritture sulle tabelle di studio sono riservate al backend/service role.
+- Il ruolo `anon` non ha privilegi SELECT sulle tabelle di studio.
+- `authenticated` ha SELECT ma non INSERT sulle tabelle di studio.
+- La funzione `match_study_source_chunks` è `SECURITY INVOKER`, eseguibile da `authenticated`, non da `anon`.
+- La funzione di ricerca vettoriale ha superato uno smoke test con zero risultati su un workspace inesistente.
+- Il bucket è stato verificato come privato e le due policy Storage per upload/read richiedono un path già autorizzato per il proprietario.
+- Supabase Security Advisors non segnala finding sulle nuove tabelle e policy.
+
+Un primo controllo aveva rilevato privilegi SELECT ereditati dal ruolo `anon`; sono stati revocati esplicitamente e i privilegi minimi sono stati concessi nuovamente. Il controllo successivo ha confermato: anon SELECT = false; authenticated SELECT = true; authenticated INSERT = false; service_role INSERT = true.
+
+### Test ancora necessari
+
+Lo smoke test non sostituisce un test end-to-end con due utenti autenticati distinti. Prima di aprire la beta occorre verificare che utente A non possa leggere file, workspace, chunk e conversazioni di utente B, e provare upload, scadenza del ticket di upload, cancellazione e quote dal backend.
+
+Il file SQL in `supabase/drafts/` resta la specifica leggibile della struttura applicata; non è ancora una migration versionata con Supabase CLI. Prima del rilascio si dovrà consolidare in una migration ufficiale e mantenerla sincronizzata.
