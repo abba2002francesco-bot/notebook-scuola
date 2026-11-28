@@ -29,7 +29,7 @@ create extension if not exists vector with schema extensions;
 
 create table public.study_workspaces (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null,
   title text not null,
   subject text,
   education_level text,
@@ -53,7 +53,7 @@ create index study_workspaces_user_created_idx
 create table public.study_sources (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null,
   original_filename text not null,
   storage_path text not null unique,
   -- Il path deve essere strettamente namespaced per proprietario/workspace/fonte.
@@ -101,7 +101,7 @@ create table public.study_source_chunks (
   id uuid primary key default gen_random_uuid(),
   source_id uuid not null,
   workspace_id uuid not null,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null,
   chunk_index integer not null,
   content text not null,
   page_start integer,
@@ -139,7 +139,7 @@ create index study_chunks_workspace_source_idx
 create table public.study_conversations (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null,
   title text not null default 'Nuova conversazione',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -159,7 +159,7 @@ create table public.study_messages (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid not null,
   workspace_id uuid not null,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null,
   role text not null,
   content text not null,
   citations jsonb not null default '[]'::jsonb,
@@ -182,7 +182,7 @@ create index study_messages_conversation_created_idx
 create table public.study_usage_events (
   id uuid primary key default gen_random_uuid(),
   request_id uuid not null unique,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null,
   workspace_id uuid,
   provider text not null,
   model_id text not null,
@@ -236,7 +236,7 @@ create policy "Users read own study usage events"
   on public.study_usage_events for select to authenticated
   using ((select auth.uid()) = user_id);
 
-grant usage on schema extensions to authenticated, service_role;
+grant usage on schema extensions to service_role;
 
 revoke all on
   public.study_workspaces,
@@ -247,15 +247,8 @@ revoke all on
   public.study_usage_events
 from public, anon, authenticated;
 
-grant select on
-  public.study_workspaces,
-  public.study_sources,
-  public.study_source_chunks,
-  public.study_conversations,
-  public.study_messages,
-  public.study_usage_events
-to authenticated;
-
+-- Il browser non accede direttamente al database isolato.
+-- Solo la Edge Function autenticata verso il Supabase principale usa service_role.
 grant all on
   public.study_workspaces,
   public.study_sources,
@@ -267,7 +260,12 @@ to service_role;
 
 -- Ricerca vettoriale: SECURITY INVOKER mantiene i vincoli RLS del chiamante.
 -- Non accetta user_id dal client: lo ricava esclusivamente da auth.uid().
+drop function if exists public.match_study_source_chunks(
+  uuid, extensions.vector, integer, double precision, text
+);
+
 create or replace function public.match_study_source_chunks(
+  p_user_id uuid,
   p_workspace_id uuid,
   p_query_embedding extensions.vector,
   p_match_count integer default 8,
@@ -298,7 +296,7 @@ as $function$
     1 - (c.embedding operator(extensions.<=>) p_query_embedding) as similarity
   from public.study_source_chunks as c
   where c.workspace_id = p_workspace_id
-    and c.user_id = (select auth.uid())
+    and c.user_id = p_user_id
     and c.embedding_model = p_embedding_model
     and c.embedding_dimensions = extensions.vector_dims(p_query_embedding)
     and c.embedding is not null
@@ -309,12 +307,12 @@ as $function$
 $function$;
 
 revoke all on function public.match_study_source_chunks(
-  uuid, extensions.vector, integer, double precision, text
-) from public, anon;
+  uuid, uuid, extensions.vector, integer, double precision, text
+) from public, anon, authenticated;
 
 grant execute on function public.match_study_source_chunks(
-  uuid, extensions.vector, integer, double precision, text
-) to authenticated;
+  uuid, uuid, extensions.vector, integer, double precision, text
+) to service_role;
 
 -- Bucket privato per documenti originali. 20 MiB per file nella beta.
 insert into storage.buckets (
@@ -354,33 +352,9 @@ begin
 end;
 $bucket_check$;
 
-create policy "Users read own study source files"
-  on storage.objects for select to authenticated
-  using (
-    bucket_id = 'study-source-files'
-    and (storage.foldername(name))[1] = (select auth.uid()::text)
-    and exists (
-      select 1
-      from public.study_sources as s
-      where s.user_id = (select auth.uid())
-        and s.storage_path = name
-    )
-  );
-
-create policy "Users upload pre-authorized own study source files"
-  on storage.objects for insert to authenticated
-  with check (
-    bucket_id = 'study-source-files'
-    and (storage.foldername(name))[1] = (select auth.uid()::text)
-    and exists (
-      select 1
-      from public.study_sources as s
-      where s.user_id = (select auth.uid())
-        and s.storage_path = name
-        and s.status = 'uploaded'
-        and s.upload_expires_at > now()
-    )
-  );
+-- Non creare policy di accesso diretto per anon/authenticated.
+-- La Edge Function server-side verifica il JWT del progetto Auth principale,
+-- usa il service_role del progetto dati e genera URL firmati a scadenza breve.
 
 commit;
 
