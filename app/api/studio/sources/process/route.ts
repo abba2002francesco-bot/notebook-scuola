@@ -306,27 +306,25 @@ async function extractPdf(bytes: Uint8Array): Promise<{ pages: ExtractedPage[]; 
     throw new SourceProcessingError("Il PDF supera il limite beta di 1.000 pagine.", "document_too_large");
   }
 
-  try {
-    const extracted = await extractText(pdf, { mergePages: false });
-    const textPages = Array.isArray(extracted.text)
-      ? extracted.text
-      : String(extracted.text).split("\f");
+  const extracted = await extractText(pdf, { mergePages: false });
+  const textPages = Array.isArray(extracted.text)
+    ? extracted.text
+    : String(extracted.text).split("\f");
 
-    const pages = textPages.map((value, pageIndex) => ({
-      page_index: pageIndex,
-      page_number: pageIndex + 1,
-      text: normalizeText(String(value)),
-    })).filter((page) => page.text.length > 0);
+  const pages = textPages.map((value, pageIndex) => ({
+    page_index: pageIndex,
+    page_number: pageIndex + 1,
+    text: normalizeText(String(value)),
+  })).filter((page) => page.text.length > 0);
 
-    if (pages.length === 0) {
-      throw new SourceProcessingError(
-        "Questo PDF non contiene testo selezionabile. I PDF composti soltanto da scansioni richiederanno una funzione OCR, non ancora attiva.",
-        "no_text_content",
-      );
-    }
-
-    return { pages, pageCount };
+  if (pages.length === 0) {
+    throw new SourceProcessingError(
+      "Questo PDF non contiene testo selezionabile. I PDF composti soltanto da scansioni richiederanno una funzione OCR, non ancora attiva.",
+      "no_text_content",
+    );
   }
+
+  return { pages, pageCount };
 }
 
 async function extractDocument(source: SourceInfo, bytes: Uint8Array) {
