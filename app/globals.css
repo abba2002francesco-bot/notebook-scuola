@@ -928,3 +928,196 @@ button { cursor: pointer; }
   .section-heading h2 { font-size:19px; }
   .notebook-card { min-height:200px; }
 }
+
+
+/* NOTEBOOK SCUOLA — gestione documenti dell'area Studio */
+.notebook-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+.notebook-card-actions .button {
+  min-height: 40px;
+  padding: 9px 13px;
+  font-size: 12px;
+}
+.source-manager {
+  margin-top: 24px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff;
+}
+.source-manager-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.source-manager-heading h2 {
+  margin: 4px 0 7px;
+  color: var(--ink);
+  font-family: Manrope, sans-serif;
+  font-size: 21px;
+  letter-spacing: -.5px;
+  overflow-wrap: anywhere;
+}
+.source-manager-heading p {
+  max-width: 650px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.source-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+}
+.source-toolbar .button {
+  min-height: 43px;
+  white-space: nowrap;
+}
+.source-progress {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 13px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 650;
+}
+.source-empty {
+  margin-top: 16px;
+  padding: 28px 16px;
+}
+.source-empty h3 {
+  margin: 8px 0 4px;
+  color: var(--ink);
+  font-size: 16px;
+}
+.source-empty p {
+  max-width: 520px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 16px;
+}
+.source-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+.source-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 39px;
+  height: 39px;
+  flex: 0 0 39px;
+  border-radius: 11px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.source-main {
+  flex: 1;
+  min-width: 0;
+}
+.source-main strong {
+  display: block;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.source-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.source-warning {
+  margin: 5px 0 0;
+  color: #a45b0a;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.source-status {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: #f0f1f5;
+  color: #5f6472;
+  font-size: 11px;
+  font-weight: 700;
+}
+.source-status-extracted,
+.source-status-ready {
+  background: #eaf7ef;
+  color: #247044;
+}
+.source-status-failed {
+  background: #fff2e5;
+  color: #9a5410;
+}
+.source-status-processing {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.source-next-step {
+  margin: 15px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+@media (max-width: 620px) {
+  .notebook-card-actions .button {
+    width: auto;
+  }
+  .source-manager {
+    padding: 16px 13px;
+  }
+  .source-manager-heading h2 {
+    font-size: 18px;
+  }
+  .source-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .source-toolbar .button {
+    width: 100%;
+    justify-content: center;
+  }
+  .source-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 9px;
+  }
+  .source-main {
+    flex-basis: calc(100% - 52px);
+  }
+  .source-status {
+    margin-left: 48px;
+  }
+  .source-row > .icon-button {
+    margin-left: auto;
+  }
+}
