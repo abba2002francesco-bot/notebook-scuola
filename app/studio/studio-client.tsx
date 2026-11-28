@@ -227,6 +227,126 @@ export default function StudioClient() {
     }
   }
 
+  async function uploadSource(file: File) {
+    if (!selectedWorkspaceId) {
+      setError("Seleziona prima un notebook.");
+      return;
+    }
+
+    const extension = file.name.toLowerCase().split(".").pop() || "";
+    const mimeType = MIME_BY_EXTENSION[extension];
+    if (!mimeType) {
+      setError("Formato non supportato. Puoi caricare PDF, DOCX o PPTX.");
+      return;
+    }
+    if (file.size < 1 || file.size > MAX_FILE_BYTES) {
+      setError("Il file deve pesare al massimo 20 MB.");
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+    setUploading(true);
+
+    try {
+      const token = await getAccessToken();
+      setUploadStage("Preparazione del caricamento…");
+
+      const prepareResponse = await fetch("/api/studio/sources", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({
+          workspace_id: selectedWorkspaceId,
+          filename: file.name,
+          mime_type: mimeType,
+          byte_size: file.size,
+        }),
+      });
+      const prepared = await prepareResponse.json().catch(() => ({})) as {
+        source?: Source;
+        upload?: { path: string; token: string };
+        error?: string;
+      };
+
+      if (!prepareResponse.ok || !prepared.source || !prepared.upload?.path || !prepared.upload.token) {
+        throw new Error(prepared.error || "Non è stato possibile preparare il caricamento.");
+      }
+
+      setUploadStage("Caricamento del file…");
+      const { error: storageError } = await studyStorageClient.storage
+        .from(SOURCE_BUCKET)
+        .uploadToSignedUrl(prepared.upload.path, prepared.upload.token, file, {
+          contentType: mimeType,
+          upsert: false,
+        });
+
+      if (storageError) {
+        await fetch("/api/studio/sources", {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + token,
+          },
+          body: JSON.stringify({ source_id: prepared.source.id }),
+        }).catch(() => undefined);
+        throw new Error("Il caricamento del file non è riuscito: " + storageError.message);
+      }
+
+      setUploadStage("Estrazione del testo e delle pagine…");
+      const processResponse = await fetch("/api/studio/sources/process", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({ source_id: prepared.source.id }),
+      });
+      const processed = await processResponse.json().catch(() => ({})) as { error?: string };
+
+      await loadSources(selectedWorkspaceId);
+      if (!processResponse.ok) {
+        throw new Error(processed.error || "Il file è stato caricato ma l'estrazione non è riuscita.");
+      }
+
+      setSuccess("Documento caricato e testo estratto. L'indice semantico e l'assistente AI saranno aggiunti nella fase successiva.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Caricamento non riuscito.");
+      if (selectedWorkspaceId) await loadSources(selectedWorkspaceId);
+    } finally {
+      setUploading(false);
+      setUploadStage("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function deleteSource(source: Source) {
+    const confirmed = window.confirm("Vuoi eliminare il documento \"" + source.original_filename + "\" e il testo estratto?");
+    if (!confirmed) return;
+
+    setError("");
+    setSuccess("");
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("/api/studio/sources", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({ source_id: source.id }),
+      });
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Eliminazione non riuscita.");
+      if (selectedWorkspaceId) await loadSources(selectedWorkspaceId);
+      setSuccess("Documento eliminato.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Eliminazione non riuscita.");
+    }
+  }
+
   if (loading || (user && listLoading && workspaces.length === 0)) {
     return <div className="container page"><div className="loading">Caricamento area studio…</div></div>;
   }
