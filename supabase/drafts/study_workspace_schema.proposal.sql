@@ -65,6 +65,7 @@ create table public.study_sources (
   failure_code text,
   created_at timestamptz not null default now(),
   processed_at timestamptz,
+  upload_expires_at timestamptz not null default (now() + interval '20 minutes'),
   constraint study_sources_workspace_owner_fkey
     foreign key (workspace_id, user_id)
     references public.study_workspaces (id, user_id) on delete cascade,
@@ -343,13 +344,27 @@ create policy "Users read own study source files"
   using (
     bucket_id = 'study-source-files'
     and (storage.foldername(name))[1] = (select auth.uid()::text)
+    and exists (
+      select 1
+      from public.study_sources as s
+      where s.user_id = (select auth.uid())
+        and s.storage_path = name
+    )
   );
 
-create policy "Users upload own study source files"
+create policy "Users upload pre-authorized own study source files"
   on storage.objects for insert to authenticated
   with check (
     bucket_id = 'study-source-files'
     and (storage.foldername(name))[1] = (select auth.uid()::text)
+    and exists (
+      select 1
+      from public.study_sources as s
+      where s.user_id = (select auth.uid())
+        and s.storage_path = name
+        and s.status = 'uploaded'
+        and s.upload_expires_at > now()
+    )
   );
 
 commit;
