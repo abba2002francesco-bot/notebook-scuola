@@ -830,3 +830,101 @@ button { cursor: pointer; }
     height: 17px;
   }
 }
+
+
+/* NOTEBOOK SCUOLA — area personale di studio */
+.notebook-grid {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:15px;
+}
+.notebook-card {
+  min-height:220px;
+  padding:19px;
+  gap:12px;
+}
+.notebook-card-top {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.notebook-card h3 {
+  color:var(--ink);
+  font-family:Manrope,sans-serif;
+  font-size:17px;
+  line-height:1.35;
+  letter-spacing:-.3px;
+  margin:3px 0 0;
+  overflow-wrap:anywhere;
+}
+.notebook-card p {
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.55;
+  margin:0;
+  flex:1;
+}
+.notebook-card-meta {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:7px 12px;
+  border-top:1px solid #f0f1f5;
+  padding-top:13px;
+  margin-top:5px;
+  color:#85899a;
+  font-size:11px;
+}
+.section-heading {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.section-heading h2 {
+  font-family:Manrope,sans-serif;
+  font-size:22px;
+  letter-spacing:-.5px;
+}
+.count-pill {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:42px;
+  padding:7px 11px;
+  border-radius:999px;
+  background:var(--accent-soft);
+  color:var(--accent);
+  font-size:12px;
+  font-weight:800;
+}
+.icon-button {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:36px;
+  height:36px;
+  flex:0 0 36px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:white;
+  color:var(--muted);
+  cursor:pointer;
+  transition:background .15s,color .15s,border-color .15s;
+}
+.icon-button:hover:not(:disabled) {
+  background:#fff3f1;
+  color:#b42318;
+  border-color:#f0cbc6;
+}
+.icon-button:disabled {
+  opacity:.55;
+  cursor:wait;
+}
+@media (max-width:620px) {
+  .notebook-grid { grid-template-columns:1fr; }
+  .section-heading h2 { font-size:19px; }
+  .notebook-card { min-height:200px; }
+}
