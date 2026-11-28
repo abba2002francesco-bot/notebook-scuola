@@ -238,15 +238,6 @@ create policy "Users read own study usage events"
 
 grant usage on schema extensions to authenticated, service_role;
 
-grant select on
-  public.study_workspaces,
-  public.study_sources,
-  public.study_source_chunks,
-  public.study_conversations,
-  public.study_messages,
-  public.study_usage_events
-to authenticated;
-
 revoke all on
   public.study_workspaces,
   public.study_sources,
@@ -255,6 +246,15 @@ revoke all on
   public.study_messages,
   public.study_usage_events
 from public, anon, authenticated;
+
+grant select on
+  public.study_workspaces,
+  public.study_sources,
+  public.study_source_chunks,
+  public.study_conversations,
+  public.study_messages,
+  public.study_usage_events
+to authenticated;
 
 grant all on
   public.study_workspaces,
