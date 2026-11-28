@@ -391,20 +391,50 @@ export async function POST(request: NextRequest) {
       throw new SourceProcessingError("Il documento contiene più di 2 milioni di caratteri: limite beta superato.", "document_too_large", 413);
     }
 
-    const completed = await callEdge("complete", auth.authorization, {
-      source_id: sourceId,
-      page_count: extracted.pageCount,
-      pages: extracted.pages,
-    }, 40_000);
+    // Invia gruppi piccoli: evita limiti di payload e consente di gestire
+    // PDF lunghi senza accumulare l'intero testo in una singola richiesta.
+    const encoder = new TextEncoder();
+    const batches: ExtractedPage[][] = [];
+    let currentBatch: ExtractedPage[] = [];
+    let currentBytes = 0;
+    const MAX_BATCH_BYTES = 450_000;
 
-    if (!completed.response.ok) {
-      const message = typeof completed.result.error === "string"
-        ? completed.result.error
-        : "Non è stato possibile salvare il testo estratto.";
-      return NextResponse.json({ error: message }, { status: completed.response.status });
+    for (const page of extracted.pages) {
+      const pageBytes = encoder.encode(JSON.stringify(page)).byteLength;
+      if (pageBytes > 1_000_000) {
+        throw new SourceProcessingError("Una pagina supera la dimensione massima di elaborazione.", "document_too_large", 413);
+      }
+      if (currentBatch.length > 0 &&
+          (currentBytes + pageBytes > MAX_BATCH_BYTES || currentBatch.length >= 100)) {
+        batches.push(currentBatch);
+        currentBatch = [];
+        currentBytes = 0;
+      }
+      currentBatch.push(page);
+      currentBytes += pageBytes;
+    }
+    if (currentBatch.length > 0) batches.push(currentBatch);
+
+    let completedResult: Record<string, unknown> = {};
+    for (let index = 0; index < batches.length; index += 1) {
+      const completed = await callEdge("complete", auth.authorization, {
+        source_id: sourceId,
+        page_count: extracted.pageCount,
+        pages: batches[index],
+        is_final: index === batches.length - 1,
+      }, 40_000);
+
+      if (!completed.response.ok) {
+        const message = typeof completed.result.error === "string"
+          ? completed.result.error
+          : "Non è stato possibile salvare il testo estratto.";
+        await markFailed(sourceId, auth.authorization, "extraction_error");
+        return NextResponse.json({ error: message }, { status: completed.response.status });
+      }
+      completedResult = completed.result;
     }
 
-    return NextResponse.json(completed.result, {
+    return NextResponse.json(completedResult, {
       status: 200,
       headers: { "Cache-Control": "no-store" },
     });
