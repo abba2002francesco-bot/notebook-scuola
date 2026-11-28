@@ -265,7 +265,7 @@ async function extractPdf(bytes: Uint8Array): Promise<{ pages: ExtractedPage[]; 
 
   let pdf;
   try {
-    pdf = await getDocumentProxy(bytes);
+    pdf = await getDocumentProxy(bytes, { maxImageSize: 16_777_216 });
   } catch (error) {
     const message = error instanceof Error ? error.message.toLowerCase() : "";
     if (message.includes("password") || message.includes("encrypt")) {
@@ -276,7 +276,6 @@ async function extractPdf(bytes: Uint8Array): Promise<{ pages: ExtractedPage[]; 
 
   const pageCount = pdf.numPages;
   if (!Number.isInteger(pageCount) || pageCount < 1 || pageCount > MAX_PAGES) {
-    await pdf.destroy();
     throw new SourceProcessingError("Il PDF supera il limite beta di 1.000 pagine.", "document_too_large");
   }
 
@@ -301,7 +300,7 @@ async function extractPdf(bytes: Uint8Array): Promise<{ pages: ExtractedPage[]; 
 
     return { pages, pageCount };
   } finally {
-    await pdf.destroy();
+    // PDFDocumentProxy non espone destroy(); il runtime libera la memoria a fine richiesta.
   }
 }
 
