@@ -149,3 +149,20 @@ Il controllo Supabase del 28 novembre ha rilevato avvisi preesistenti:
 - Protezione Supabase contro password compromesse attualmente disattivata.
 
 Questi avvisi appartengono alla configurazione preesistente. Non vengono modificati in questa fase per non rischiare di interrompere registrazione, consenso genitoriale o pannello amministrativo. Dovranno essere affrontati in una revisione di sicurezza separata prima dell'apertura pubblica della nuova area.
+
+
+### Verifica catalogo modelli AI — 28 novembre 2026
+
+Il catalogo live di Vercel AI Gateway restituisce questi identificativi esatti:
+
+| Candidato | ID Gateway | Input / 1M token | Output / 1M token | Dati/endpoint |
+|---|---|---:|---:|---|
+| Mistral Small 4 | `mistral/mistral-small` | $0,15 | $0,60 | Endpoint Mistral: ZDR e no-training dichiarati |
+| Gemini 3.1 Flash Lite | `google/gemini-3.1-flash-lite` | $0,25 | $1,50 | Endpoint Vertex EU: ZDR e no-training dichiarati; tariffa regionale $0,275 / $1,65 |
+| Gemini 2.5 Flash Lite | `google/gemini-2.5-flash-lite` | $0,10 | $0,40 | Endpoint Vertex EU: ZDR e no-training dichiarati |
+
+Il catalogo Gateway specifica che `mistral/mistral-small` attualmente esegue Mistral Small 4. Per Gemini, quando la protezione dei documenti è un requisito, il confronto va fatto sull'endpoint Vertex con regione UE esplicita, non assumendo che tutti gli endpoint Google abbiano le stesse garanzie. I flag zero-data-retention e no-training descrivono le caratteristiche dichiarate dal provider nel catalogo; prima del rilascio dovremo comunque verificare termini, DPA e trasferimenti di dati effettivi.
+
+Esempio puramente comparativo: 1.000 richieste con 10.000 token input e 1.000 token output ciascuna costerebbero circa $2,10 con Mistral Small 4, $4,40 con Gemini 3.1 Flash Lite su Vertex EU e $1,40 con Gemini 2.5 Flash Lite su Vertex EU. Non include embedding, eventuali caching, imposte o altre componenti. Il modello più economico non è automaticamente quello da scegliere: la decisione dipende dal benchmark didattico.
+
+Per gli embedding, il catalogo Gateway espone `mistral/mistral-embed` a $0,10 per milione di token; la documentazione Mistral dichiara 1024 dimensioni. La proposta SQL ora memorizza la dimensione di ogni embedding separatamente, invece di fissare il tipo vector a 1024: questa scelta evita di legare definitivamente l'architettura a un unico embedding model. Il modello iniziale proposto resta Mistral Embed, da verificare su testi scolastici italiani.
