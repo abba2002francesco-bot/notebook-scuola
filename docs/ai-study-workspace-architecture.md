@@ -21,10 +21,10 @@ Il catalogo pubblico esistente resta separato e invariato.
 ## Componenti
 
 - **Frontend**: Next.js App Router, con area personale non collegata alla navigazione pubblica fino al completamento dei test.
-- **Autenticazione**: sessione Supabase già in uso; verifica utente lato server per ogni endpoint. Non introdurre nuovi flussi Google OAuth.
-- **API**: Next.js Route Handlers per creazione notebook, upload, chat, generazione strumenti di studio e quote.
+- **Autenticazione**: riutilizzare l'account Supabase Auth attuale di Notebook Scuola. Il nuovo progetto dati non crea account paralleli e non cambia i flussi di registrazione o consenso.
+- **API**: Next.js Route Handlers verificano il token dell'utente sul Supabase Auth principale e inoltrano le richieste a una Edge Function nel progetto dati isolato. La Edge Function riverifica il token prima di utilizzare il proprio service role.
 - **Database**: PostgreSQL Supabase; nuove tabelle dedicate all'area studio.
-- **File**: Supabase Storage con bucket privato, policy di lettura/scrittura per proprietario e validazione server-side.
+- **File**: Supabase Storage con bucket privato; nessun accesso diretto anonimo/autenticato al progetto dati. La Edge Function crea URL firmati a scadenza breve dopo aver verificato il proprietario.
 - **Ricerca semantica**: pgvector, con query sempre filtrate per notebook e proprietario.
 - **AI**: Vercel AI SDK + AI Gateway, dopo aver verificato versione installata, modello/ID esatto e policy del provider.
 
@@ -40,7 +40,7 @@ Questi nomi sono concettuali; tipi, chiavi esterne e policy saranno definiti nel
 - `study_usage_events`: utente, richiesta, modello, token input/output, costo stimato e data.
 - `study_jobs` (se necessario): elaborazioni documenti con stato, tentativi e messaggi d'errore non sensibili.
 
-Tutte le tabelle esposte avranno RLS. Le policy devono verificare la proprietà del notebook anche nelle relazioni, non soltanto che l'utente sia autenticato. Per Storage, il percorso del file non sostituisce il controllo di proprietà.
+RLS è attivo su tutte le tabelle, ma il progetto dati non concede privilegi di lettura/scrittura ai ruoli `anon` e `authenticated`: l'accesso passa soltanto dalla Edge Function server-side. Il `user_id` memorizzato è l'UUID dell'utente verificato sul progetto Auth principale e non ha una FK verso `auth.users` del progetto dati (i due progetti hanno identità e chiavi JWT distinte). Ogni query amministrativa deve sempre filtrare per `user_id` verificato; le chiavi `secret/service_role` non escono mai dalla Edge Function. Per Storage, il percorso del file non sostituisce il controllo di proprietà.
 
 ## Flusso documenti
 
@@ -55,8 +55,8 @@ Prima versione: PDF testuali, DOCX e PPTX. PDF scansiti e immagini con OCR sono 
 
 ## Flusso domande e risposte (RAG)
 
-1. Verifica sessione e proprietà del workspace.
-2. Applica limiti e verifica del budget.
+1. Next.js verifica la sessione dell'account principale; la Edge Function riverifica il token con `auth.getUser()` sullo stesso progetto.
+2. La Edge Function ricava `user.id` dal token verificato, senza accettare un `user_id` dal client; applica limiti e verifica del budget.
 3. Recupera i blocchi più pertinenti, filtrati per workspace e proprietario.
 4. Invia al modello solo la domanda e gli estratti necessari.
 5. Richiede una risposta didattica che distingua fatti presenti nelle fonti da spiegazioni aggiuntive.
@@ -111,7 +111,7 @@ Il costo zero assoluto non può essere garantito se si esauriscono i crediti gra
 - Criteri del benchmark e soglia minima di qualità.
 
 
-## Verifica dell'infrastruttura attiva — 28 novembre 2026
+## Verifica dell'infrastruttura e ambiente di sviluppo — 28 novembre 2026
 
 Questa sezione riporta dati osservati sul progetto collegato a `notebookscuola.it`, non ipotesi.
 
@@ -172,7 +172,7 @@ Per gli embedding, il catalogo Gateway espone `mistral/mistral-embed` a $0,10 pe
 
 Il progetto Supabase separato `notebook-scuola-ai-dev` è stato creato nell'organizzazione esistente, nella regione `eu-west-1`, con preventivo di creazione $0/mese. Project ref: `bgdocyhfcejbutnvsyxl`. È `ACTIVE_HEALTHY`.
 
-La prima struttura di studio è stata applicata a questo progetto vuoto, non al database in produzione. Sono presenti sei tabelle nuove:
+La prima struttura di studio è stata applicata a questo progetto vuoto, non al database in produzione. L'Auth rimane quello del progetto principale; il progetto dati non contiene account duplicati. Sono presenti sei tabelle nuove:
 - `study_workspaces`
 - `study_sources`
 - `study_source_chunks`
@@ -187,7 +187,7 @@ La prima struttura di studio è stata applicata a questo progetto vuoto, non al 
 - Tutte e sei le tabelle hanno RLS attivo e una policy SELECT per il proprietario.
 - Le scritture sulle tabelle di studio sono riservate al backend/service role.
 - Il ruolo `anon` non ha privilegi SELECT sulle tabelle di studio.
-- `authenticated` ha SELECT ma non INSERT sulle tabelle di studio.
+- `authenticated` non ha SELECT né INSERT sulle tabelle di studio.
 - La funzione `match_study_source_chunks` è `SECURITY INVOKER`, eseguibile da `authenticated`, non da `anon`.
 - La funzione di ricerca vettoriale ha superato uno smoke test con zero risultati su un workspace inesistente.
 - Il bucket è stato verificato come privato e le due policy Storage per upload/read richiedono un path già autorizzato per il proprietario.
@@ -200,3 +200,15 @@ Un primo controllo aveva rilevato privilegi SELECT ereditati dal ruolo `anon`; s
 Lo smoke test non sostituisce un test end-to-end con due utenti autenticati distinti. Prima di aprire la beta occorre verificare che utente A non possa leggere file, workspace, chunk e conversazioni di utente B, e provare upload, scadenza del ticket di upload, cancellazione e quote dal backend.
 
 Il file SQL in `supabase/drafts/` resta la specifica leggibile della struttura applicata; non è ancora una migration versionata con Supabase CLI. Prima del rilascio si dovrà consolidare in una migration ufficiale e mantenerla sincronizzata.
+
+
+## Primo servizio e pagina Studio — 28 novembre 2026
+
+La Edge Function `study-api` è attiva nel progetto dati `bgdocyhfcejbutnvsyxl`, con `verify_jwt=false` perché il token entrante appartiene al progetto Auth principale. La funzione effettua una verifica esplicita con `primaryAuth.auth.getUser(token)` prima di ogni accesso amministrativo al database isolato. Il service role resta esclusivamente nell'ambiente Edge Function.
+
+Primo endpoint supportato: `/functions/v1/study-api/workspaces`:
+- GET: elenco dei notebook dell'utente verificato;
+- POST: creazione di un notebook personale;
+- DELETE: eliminazione filtrata per ID e proprietario.
+
+La quota beta iniziale è 5 workspace per utente. La pagina Next.js privata `/studio` e il proxy `/api/studio/workspaces` sono stati aggiunti al ramo di sviluppo. La pagina è impostata `noindex` e `robots.txt` la esclude dall'indicizzazione. Non è stato aggiunto alcun link nella navigazione pubblica.
