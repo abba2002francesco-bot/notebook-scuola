@@ -410,7 +410,7 @@ async function completeSource(request: Request, userId: string) {
   if (source.status === "extracted" || source.status === "ready") {
     return json({ extracted: true, source_id: sourceId, already_processed: true });
   }
-  if (!["uploaded", "processing"].includes(source.status)) {
+  if (!["uploaded", "processing", "failed"].includes(source.status)) {
     return json({ error: "Il documento non è in uno stato elaborabile." }, 409);
   }
 
@@ -595,7 +595,7 @@ Deno.serve(async (request: Request) => {
   const functionIndex = segments.lastIndexOf("study-api");
   const route = functionIndex >= 0
     ? segments.slice(functionIndex + 1).join("/")
-    : segments.slice(-1)[0] ?? "";
+    : segments.slice(-2).join("/");
 
   if (route === "workspaces") {
     if (request.method === "GET") return await listWorkspaces(user.id);
