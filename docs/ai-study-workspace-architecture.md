@@ -109,3 +109,43 @@ Il costo zero assoluto non può essere garantito se si esauriscono i crediti gra
 - Provider/modello AI definitivo e relativo contratto/DPA.
 - Pipeline per elaborazioni lunghe e necessità di una coda.
 - Criteri del benchmark e soglia minima di qualità.
+
+
+## Verifica dell'infrastruttura attiva — 28 novembre 2026
+
+Questa sezione riporta dati osservati sul progetto collegato a `notebookscuola.it`, non ipotesi.
+
+- Vercel: il progetto di produzione corretto è `free-notebook`; il ramo di sviluppo è separato da `main`.
+- Supabase: progetto attivo nella regione `eu-west-1`, PostgreSQL 17.12.
+- Nel database attivo non esistono ancora tabelle `study_*`.
+- L'estensione `vector` è disponibile alla versione predefinita 0.8.2 ma non è installata.
+- Storage contiene un solo bucket attuale, `notebook-images`, pubblico e destinato alle anteprime del catalogo. Non deve essere riutilizzato per documenti privati.
+- La cronologia migrazioni Supabase registra attualmente una sola migrazione (`registration_authorization_hook`), mentre lo schema applicativo esistente include altre tabelle già operative. Ogni futura migrazione deve quindi essere additiva e controllata; non tentare di ricreare lo schema di base.
+
+### Modello embedding proposto
+
+Per i primi test si propone `mistral-embed`: la documentazione Mistral indica vettori a 1024 dimensioni e un prezzo pubblicato di $0,10 per milione di token in ingresso. La proposta SQL usa quindi `extensions.vector(1024)`, ma la scelta resta soggetta a test di recupero in italiano e verifica del contratto dati. Fonti: https://docs.mistral.ai/inference/embeddings/text-embeddings e https://docs.mistral.ai/inference/pricing.
+
+La ricerca iniziale non crea subito un indice HNSW: nella beta chiusa confronteremo la ricerca esatta su dataset piccoli, precisione dei risultati e latenza. Aumenteremo la complessità solo quando i test mostreranno che serve.
+
+### Prima proposta di schema e sicurezza
+
+File di riferimento: `supabase/drafts/study_workspace_schema.proposal.sql`. È un documento di proposta, **non una migration e non va eseguito**.
+
+La proposta prevede:
+- sei tabelle nuove: workspace, fonti, chunk, conversazioni, messaggi e utilizzi AI;
+- chiavi esterne composte che impediscono di associare un figlio al workspace di un altro proprietario;
+- RLS con lettura limitata al proprietario;
+- nessuna scrittura diretta dal browser sulle tabelle di studio: le Route Handlers verificano il token con `auth.getUser(token)`, controllano la proprietà e solo allora usano la chiave amministrativa;
+- bucket separato e privato `study-source-files`;
+- l'upload è consentito soltanto per un percorso file già prenotato da una riga fonte valida e non scaduta, così l'utente non può usare il bucket come spazio libero non conteggiato;
+- funzione di ricerca vettoriale `SECURITY INVOKER`, filtrata per `auth.uid()` e workspace.
+
+### Avvisi di sicurezza già presenti, da non confondere con questa nuova funzione
+
+Il controllo Supabase del 28 novembre ha rilevato avvisi preesistenti:
+- RLS attivo ma nessuna policy su `app_admins`, `parental_consent_requests`, `registration_authorizations` e `registration_rate_limit_buckets`. Alcune tabelle possono essere intenzionalmente accessibili soltanto al backend, ma va verificato che i privilegi siano coerenti.
+- Funzioni `SECURITY DEFINER` in schema pubblico (`handle_new_user()` e `is_app_admin()`) eseguibili da ruoli autenticati e/o anonimi: va esaminata la necessità di restringerne l'esecuzione.
+- Protezione Supabase contro password compromesse attualmente disattivata.
+
+Questi avvisi appartengono alla configurazione preesistente. Non vengono modificati in questa fase per non rischiare di interrompere registrazione, consenso genitoriale o pannello amministrativo. Dovranno essere affrontati in una revisione di sicurezza separata prima dell'apertura pubblica della nuova area.
