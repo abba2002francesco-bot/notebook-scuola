@@ -747,6 +747,258 @@ async function deleteNote(request: Request, userId: string) {
 }
 
 
+const CONVERSATION_SELECT = "id,workspace_id,title,created_at,updated_at";
+const MESSAGE_SELECT = "id,conversation_id,workspace_id,role,content,citations,model_id,is_bookmarked,bookmarked_at,created_at";
+
+async function listConversations(request: Request, userId: string) {
+  const workspaceId = new URL(request.url).searchParams.get("workspace_id");
+  if (!isUuid(workspaceId)) return json({ error: "Notebook non valido." }, 400);
+
+  const { data: workspace, error: workspaceError } = await studyAdmin
+    .from("study_workspaces")
+    .select("id")
+    .eq("id", workspaceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (workspaceError || !workspace) return json({ error: "Notebook non trovato." }, 404);
+
+  const { data, error } = await studyAdmin
+    .from("study_conversations")
+    .select(CONVERSATION_SELECT)
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    console.error("[study-api] list conversations failed", error.code ?? "unknown");
+    return json({ error: "Non è stato possibile caricare la cronologia delle chat." }, 500);
+  }
+  return json({ conversations: data ?? [] });
+}
+
+async function createConversation(request: Request, userId: string) {
+  let body: Record<string, unknown>;
+  try {
+    body = await readJson(request, 8_192);
+  } catch {
+    return json({ error: "Richiesta non valida." }, 400);
+  }
+
+  const workspaceId = body.workspace_id;
+  const title = typeof body.title === "string" ? body.title.trim() : "Nuova conversazione";
+  if (!isUuid(workspaceId)) return json({ error: "Notebook non valido." }, 400);
+  if (title.length < 1 || title.length > 160) {
+    return json({ error: "Il titolo della conversazione deve contenere da 1 a 160 caratteri." }, 400);
+  }
+
+  const { data: workspace, error: workspaceError } = await studyAdmin
+    .from("study_workspaces")
+    .select("id")
+    .eq("id", workspaceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (workspaceError || !workspace) return json({ error: "Notebook non trovato." }, 404);
+
+  const { count, error: countError } = await studyAdmin
+    .from("study_conversations")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId);
+  if (countError) {
+    console.error("[study-api] count conversations failed", countError.code ?? "unknown");
+    return json({ error: "Non è stato possibile preparare una nuova conversazione." }, 500);
+  }
+  if ((count ?? 0) >= 50) {
+    return json({ error: "Hai raggiunto il limite beta di 50 conversazioni per notebook." }, 429);
+  }
+
+  const { data, error } = await studyAdmin
+    .from("study_conversations")
+    .insert({ workspace_id: workspaceId, user_id: userId, title })
+    .select(CONVERSATION_SELECT)
+    .single();
+
+  if (error || !data) {
+    console.error("[study-api] create conversation failed", error?.code ?? "unknown");
+    return json({ error: "Non è stato possibile creare la conversazione." }, 500);
+  }
+
+  await studyAdmin
+    .from("study_workspaces")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", workspaceId)
+    .eq("user_id", userId);
+
+  return json({ conversation: data }, 201);
+}
+
+async function deleteConversation(request: Request, userId: string) {
+  let body: Record<string, unknown>;
+  try {
+    body = await readJson(request, 8_192);
+  } catch {
+    return json({ error: "Richiesta non valida." }, 400);
+  }
+
+  const conversationId = body.conversation_id;
+  if (!isUuid(conversationId)) return json({ error: "Conversazione non valida." }, 400);
+
+  const { data, error } = await studyAdmin
+    .from("study_conversations")
+    .delete()
+    .eq("id", conversationId)
+    .eq("user_id", userId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[study-api] delete conversation failed", error.code ?? "unknown");
+    return json({ error: "Non è stato possibile eliminare la conversazione." }, 500);
+  }
+  if (!data) return json({ error: "Conversazione non trovata." }, 404);
+  return json({ deleted: true });
+}
+
+async function listMessages(request: Request, userId: string) {
+  const url = new URL(request.url);
+  const conversationId = url.searchParams.get("conversation_id");
+  const before = url.searchParams.get("before");
+  const requestedLimit = Number(url.searchParams.get("limit") ?? "100");
+  const limit = Number.isInteger(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 100)) : 100;
+
+  if (!isUuid(conversationId)) return json({ error: "Conversazione non valida." }, 400);
+  if (before && Number.isNaN(Date.parse(before))) return json({ error: "Cursore cronologia non valido." }, 400);
+
+  const { data: conversation, error: conversationError } = await studyAdmin
+    .from("study_conversations")
+    .select("id")
+    .eq("id", conversationId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (conversationError || !conversation) return json({ error: "Conversazione non trovata." }, 404);
+
+  let query = studyAdmin
+    .from("study_messages")
+    .select(MESSAGE_SELECT)
+    .eq("conversation_id", conversationId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (before) query = query.lt("created_at", before);
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("[study-api] list messages failed", error.code ?? "unknown");
+    return json({ error: "Non è stato possibile caricare i messaggi." }, 500);
+  }
+
+  const rows = data ?? [];
+  const chronological = [...rows].reverse();
+  return json({
+    messages: chronological,
+    has_more: rows.length === limit,
+    next_before: rows.length === limit ? rows[rows.length - 1].created_at : null,
+  });
+}
+
+async function setMessageBookmark(request: Request, userId: string) {
+  let body: Record<string, unknown>;
+  try {
+    body = await readJson(request, 8_192);
+  } catch {
+    return json({ error: "Richiesta non valida." }, 400);
+  }
+
+  const messageId = body.message_id;
+  const bookmarked = body.is_bookmarked;
+  if (!isUuid(messageId) || typeof bookmarked !== "boolean") {
+    return json({ error: "Dati del segnalibro non validi." }, 400);
+  }
+
+  const { data: message, error: messageError } = await studyAdmin
+    .from("study_messages")
+    .select("id,role,conversation_id,workspace_id")
+    .eq("id", messageId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (messageError || !message) return json({ error: "Messaggio non trovato." }, 404);
+  if (message.role !== "assistant") {
+    return json({ error: "Puoi salvare nei segnalibri soltanto le risposte dell'assistente." }, 409);
+  }
+
+  const bookmarkedAt = bookmarked ? new Date().toISOString() : null;
+  const { data, error } = await studyAdmin
+    .from("study_messages")
+    .update({ is_bookmarked: bookmarked, bookmarked_at: bookmarkedAt })
+    .eq("id", messageId)
+    .eq("user_id", userId)
+    .select(MESSAGE_SELECT)
+    .single();
+
+  if (error || !data) {
+    console.error("[study-api] update message bookmark failed", error?.code ?? "unknown");
+    return json({ error: "Non è stato possibile aggiornare il segnalibro." }, 500);
+  }
+  return json({ message: data });
+}
+
+async function listBookmarkedMessages(request: Request, userId: string) {
+  const workspaceId = new URL(request.url).searchParams.get("workspace_id");
+  if (!isUuid(workspaceId)) return json({ error: "Notebook non valido." }, 400);
+
+  const { data: workspace, error: workspaceError } = await studyAdmin
+    .from("study_workspaces")
+    .select("id")
+    .eq("id", workspaceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (workspaceError || !workspace) return json({ error: "Notebook non trovato." }, 404);
+
+  const { data: messages, error } = await studyAdmin
+    .from("study_messages")
+    .select("id,conversation_id,workspace_id,content,citations,created_at,bookmarked_at")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .eq("role", "assistant")
+    .eq("is_bookmarked", true)
+    .order("bookmarked_at", { ascending: false })
+    .limit(100);
+
+  if (error) {
+    console.error("[study-api] list bookmarks failed", error.code ?? "unknown");
+    return json({ error: "Non è stato possibile caricare i messaggi salvati." }, 500);
+  }
+
+  const rows = messages ?? [];
+  const conversationIds = [...new Set(rows.map((message) => message.conversation_id))];
+  const titles = new Map<string, string>();
+
+  if (conversationIds.length > 0) {
+    const { data: conversations, error: titlesError } = await studyAdmin
+      .from("study_conversations")
+      .select("id,title")
+      .in("id", conversationIds)
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", userId);
+    if (titlesError) {
+      console.error("[study-api] list bookmark conversation titles failed", titlesError.code ?? "unknown");
+      return json({ error: "Non è stato possibile caricare i riferimenti dei segnalibri." }, 500);
+    }
+    for (const conversation of conversations ?? []) titles.set(conversation.id, conversation.title);
+  }
+
+  return json({
+    bookmarks: rows.map((message) => ({
+      ...message,
+      conversation_title: titles.get(message.conversation_id) ?? "Conversazione",
+    })),
+  });
+}
+
+
 function normalizePageForChunking(value: string) {
   return value
     .replace(/\u0000/g, "")
@@ -911,7 +1163,7 @@ async function chunkSource(request: Request, userId: string) {
 }
 
 Deno.serve(async (request: Request) => {
-  if (!["GET", "POST", "DELETE"].includes(request.method)) {
+  if (!["GET", "POST", "PATCH", "DELETE"].includes(request.method)) {
     return json({ error: "Metodo non supportato." }, 405);
   }
 
@@ -930,6 +1182,13 @@ Deno.serve(async (request: Request) => {
     return await deleteWorkspace(request, user.id);
   }
 
+
+  if (route === "conversations" && request.method === "GET") return await listConversations(request, user.id);
+  if (route === "conversations" && request.method === "POST") return await createConversation(request, user.id);
+  if (route === "conversations" && request.method === "DELETE") return await deleteConversation(request, user.id);
+  if (route === "messages" && request.method === "GET") return await listMessages(request, user.id);
+  if (route === "messages" && request.method === "PATCH") return await setMessageBookmark(request, user.id);
+  if (route === "bookmarks" && request.method === "GET") return await listBookmarkedMessages(request, user.id);
   if (route === "notes" && request.method === "GET") return await listNotes(request, user.id);
   if (route === "notes" && request.method === "POST") return await saveNote(request, user.id);
   if (route === "notes" && request.method === "DELETE") return await deleteNote(request, user.id);

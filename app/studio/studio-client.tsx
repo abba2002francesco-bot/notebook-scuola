@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, BookOpen, Check, FileQuestion, FileText, Image, Layers, LoaderCircle, Map, Menu, MessageCircle, Mic, Plus, Presentation, Send, Sparkles, StickyNote, Trash2, Upload, Video, X } from "lucide-react";
+import { ArrowLeft, BookOpen, Bookmark, Check, FileQuestion, FileText, Image, Layers, LoaderCircle, Map, Menu, MessageCircle, Mic, Plus, Presentation, Send, Sparkles, StickyNote, Trash2, Upload, Video, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { supabase } from "@/lib/supabase";
@@ -73,9 +73,50 @@ type NoteEditor = {
   originalContent: string;
 };
 
+type StudyConversation = {
+  id: string;
+  workspace_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type StudyMessage = {
+  id: string;
+  conversation_id: string;
+  workspace_id: string;
+  role: "user" | "assistant";
+  content: string;
+  citations: unknown[];
+  model_id: string | null;
+  is_bookmarked: boolean;
+  bookmarked_at: string | null;
+  created_at: string;
+};
+
+type StudyBookmark = {
+  id: string;
+  conversation_id: string;
+  workspace_id: string;
+  content: string;
+  citations: unknown[];
+  created_at: string;
+  bookmarked_at: string | null;
+  conversation_title: string;
+};
+
 function formatFileSize(value: number) {
   if (value < 1024 * 1024) return Math.max(1, Math.round(value / 1024)) + " KB";
   return (value / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function formatMessageDate(value: string) {
+  return new Date(value).toLocaleString("it-IT", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function sourceStatusLabel(source: Source) {
@@ -112,6 +153,14 @@ export default function StudioClient() {
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteDeleting, setNoteDeleting] = useState(false);
   const [editingNote, setEditingNote] = useState<NoteEditor | null>(null);
+  const [conversations, setConversations] = useState<StudyConversation[]>([]);
+  const [conversationsLoading, setConversationsLoading] = useState(false);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<StudyMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [bookmarks, setBookmarks] = useState<StudyBookmark[]>([]);
+  const [bookmarksLoading, setBookmarksLoading] = useState(false);
+  const [bookmarkBusyId, setBookmarkBusyId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const getAccessToken = useCallback(async () => {
@@ -185,6 +234,75 @@ export default function StudioClient() {
     }
   }, [getAccessToken]);
 
+
+  const loadConversations = useCallback(async (workspaceId: string) => {
+    setConversationsLoading(true);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("/api/studio/conversations?workspace_id=" + encodeURIComponent(workspaceId), {
+        headers: { Authorization: "Bearer " + token },
+        cache: "no-store",
+      });
+      const result = await response.json().catch(() => ({})) as {
+        conversations?: StudyConversation[];
+        error?: string;
+      };
+      if (!response.ok) throw new Error(result.error || "Non è stato possibile caricare la cronologia.");
+      const next = result.conversations ?? [];
+      setConversations(next);
+      setActiveConversationId((current) => current && next.some((item) => item.id === current)
+        ? current
+        : next[0]?.id ?? null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Errore durante il caricamento della cronologia.");
+    } finally {
+      setConversationsLoading(false);
+    }
+  }, [getAccessToken]);
+
+  const loadMessages = useCallback(async (conversationId: string) => {
+    setMessagesLoading(true);
+    setMessages([]);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("/api/studio/messages?conversation_id=" + encodeURIComponent(conversationId), {
+        headers: { Authorization: "Bearer " + token },
+        cache: "no-store",
+      });
+      const result = await response.json().catch(() => ({})) as {
+        messages?: StudyMessage[];
+        error?: string;
+      };
+      if (!response.ok) throw new Error(result.error || "Non è stato possibile caricare i messaggi.");
+      setMessages(result.messages ?? []);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Errore durante il caricamento dei messaggi.");
+    } finally {
+      setMessagesLoading(false);
+    }
+  }, [getAccessToken]);
+
+  const loadBookmarks = useCallback(async (workspaceId: string) => {
+    setBookmarksLoading(true);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("/api/studio/bookmarks?workspace_id=" + encodeURIComponent(workspaceId), {
+        headers: { Authorization: "Bearer " + token },
+        cache: "no-store",
+      });
+      const result = await response.json().catch(() => ({})) as {
+        bookmarks?: StudyBookmark[];
+        error?: string;
+      };
+      if (!response.ok) throw new Error(result.error || "Non è stato possibile caricare i segnalibri.");
+      setBookmarks(result.bookmarks ?? []);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Errore durante il caricamento dei segnalibri.");
+    } finally {
+      setBookmarksLoading(false);
+    }
+  }, [getAccessToken]);
+
   useEffect(() => {
     if (loading) return;
     if (!user) {
@@ -199,11 +317,25 @@ export default function StudioClient() {
       setSources([]);
       setNotes([]);
       setEditingNote(null);
+      setConversations([]);
+      setActiveConversationId(null);
+      setMessages([]);
+      setBookmarks([]);
       return;
     }
     void loadSources(selectedWorkspaceId);
     void loadNotes(selectedWorkspaceId);
-  }, [selectedWorkspaceId, user, loading, loadSources, loadNotes]);
+    void loadConversations(selectedWorkspaceId);
+    void loadBookmarks(selectedWorkspaceId);
+  }, [selectedWorkspaceId, user, loading, loadSources, loadNotes, loadConversations, loadBookmarks]);
+
+  useEffect(() => {
+    if (!activeConversationId || !selectedWorkspaceId || !user || loading) {
+      setMessages([]);
+      return;
+    }
+    void loadMessages(activeConversationId);
+  }, [activeConversationId, selectedWorkspaceId, user, loading, loadMessages]);
 
   async function createWorkspace(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -441,12 +573,20 @@ export default function StudioClient() {
   }
 
   const selectedWorkspace = workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null;
+  const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
   const selectedSourcesCount = selectedSourceIds.length;
   const chunkedSourcesCount = sources.filter((source) => source.chunk_count > 0).length;
   const readySourcesCount = sources.filter((source) => source.status === "extracted" || source.status === "ready").length;
 
   function openWorkspace(workspaceId: string) {
     setSelectedSourceIds([]);
+    setSources([]);
+    setNotes([]);
+    setEditingNote(null);
+    setConversations([]);
+    setActiveConversationId(null);
+    setMessages([]);
+    setBookmarks([]);
     setMobilePanel(null);
     setError("");
     setSuccess("");
@@ -459,9 +599,112 @@ export default function StudioClient() {
     setSources([]);
     setNotes([]);
     setEditingNote(null);
+    setConversations([]);
+    setActiveConversationId(null);
+    setMessages([]);
+    setBookmarks([]);
     setMobilePanel(null);
     setError("");
     setSuccess("");
+  }
+
+
+  async function createConversation() {
+    if (!selectedWorkspaceId) return;
+    setError("");
+    setSuccess("");
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("/api/studio/conversations", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({ workspace_id: selectedWorkspaceId }),
+      });
+      const result = await response.json().catch(() => ({})) as {
+        conversation?: StudyConversation;
+        error?: string;
+      };
+      if (!response.ok || !result.conversation) {
+        throw new Error(result.error || "Non è stato possibile creare una conversazione.");
+      }
+      setConversations((current) => [result.conversation!, ...current]);
+      setActiveConversationId(result.conversation.id);
+      setMessages([]);
+      setMobilePanel(null);
+      setSuccess("Nuova conversazione creata e salvata.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Creazione della conversazione non riuscita.");
+    }
+  }
+
+  async function deleteConversation() {
+    const conversation = conversations.find((item) => item.id === activeConversationId);
+    if (!conversation) return;
+    if (!window.confirm("Vuoi eliminare questa conversazione e i relativi messaggi? Le note e le fonti del notebook resteranno intatte.")) return;
+
+    setError("");
+    setSuccess("");
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("/api/studio/conversations", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({ conversation_id: conversation.id }),
+      });
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Non è stato possibile eliminare la conversazione.");
+      const remaining = conversations.filter((item) => item.id !== conversation.id);
+      setConversations(remaining);
+      setActiveConversationId(remaining[0]?.id ?? null);
+      setMessages([]);
+      if (selectedWorkspaceId) await loadBookmarks(selectedWorkspaceId);
+      setSuccess("Conversazione eliminata.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Eliminazione della conversazione non riuscita.");
+    }
+  }
+
+  async function toggleMessageBookmark(message: StudyMessage) {
+    if (message.role !== "assistant" || bookmarkBusyId) return;
+    setBookmarkBusyId(message.id);
+    setError("");
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("/api/studio/messages", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({
+          message_id: message.id,
+          is_bookmarked: !message.is_bookmarked,
+        }),
+      });
+      const result = await response.json().catch(() => ({})) as { message?: StudyMessage; error?: string };
+      if (!response.ok || !result.message) {
+        throw new Error(result.error || "Non è stato possibile aggiornare il segnalibro.");
+      }
+      setMessages((current) => current.map((item) => item.id === message.id ? result.message! : item));
+      if (selectedWorkspaceId) await loadBookmarks(selectedWorkspaceId);
+      setSuccess(result.message.is_bookmarked ? "Risposta aggiunta ai segnalibri." : "Risposta rimossa dai segnalibri.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Aggiornamento del segnalibro non riuscito.");
+    } finally {
+      setBookmarkBusyId(null);
+    }
+  }
+
+  function openBookmark(bookmark: StudyBookmark) {
+    setActiveConversationId(bookmark.conversation_id);
+    setMobilePanel(null);
+    setSuccess("Conversazione originale aperta: " + bookmark.conversation_title);
   }
 
   function startNewNote() {
@@ -834,50 +1077,109 @@ export default function StudioClient() {
         <section className="studio-chat-panel" aria-label="Chat di studio">
           <div className="studio-chat-header">
             <div className="studio-chat-heading-icon"><MessageCircle size={18} /></div>
-            <div>
+            <div className="studio-chat-heading-copy">
               <span className="studio-kicker">ASSISTENTE DI STUDIO</span>
-              <h1>Chat</h1>
+              <h1>{activeConversation?.title || "Chat"}</h1>
             </div>
-            <span className="studio-coming-status"><span /> In attivazione</span>
+            <span className="studio-coming-status"><span /> AI in attivazione</span>
           </div>
 
-          <div className="studio-chat-content">
-            <div className="studio-chat-welcome">
-              <div className="studio-chat-orb"><Sparkles size={25} /></div>
-              <span className="studio-kicker">IL TUO SPAZIO, LE TUE FONTI</span>
-              <h2>Studia con le tue fonti.<br />Al tuo ritmo.</h2>
-              <p>Stiamo costruendo un assistente che risponda partendo dai documenti che scegli, distingua ciò che è scritto nelle fonti dalle conoscenze esterne e mostri i riferimenti utili.</p>
-              <div className="studio-chat-metrics">
-                <div><strong>{sources.length}</strong><span>fonti caricate</span></div>
-                <div><strong>{selectedSourcesCount}</strong><span>fonti selezionate</span></div>
-                <div><strong>{chunkedSourcesCount}</strong><span>fonti segmentate</span></div>
-              </div>
-            </div>
+          <div className="studio-chat-controls">
+            <select
+              aria-label="Cronologia delle conversazioni"
+              value={activeConversationId ?? ""}
+              onChange={(event) => setActiveConversationId(event.target.value || null)}
+              disabled={conversationsLoading || conversations.length === 0}
+            >
+              <option value="">{conversationsLoading ? "Caricamento cronologia…" : "Nessuna conversazione"}</option>
+              {conversations.map((conversation) => (
+                <option key={conversation.id} value={conversation.id}>{conversation.title}</option>
+              ))}
+            </select>
+            <button type="button" className="studio-chat-new-button" onClick={() => void createConversation()}>
+              <Plus size={14} /> Nuova chat
+            </button>
+            {activeConversation && (
+              <button type="button" className="studio-chat-delete-button" title="Elimina conversazione" aria-label="Elimina conversazione" onClick={() => void deleteConversation()}>
+                <Trash2 size={15} />
+              </button>
+            )}
+          </div>
 
-            <div className="studio-chat-next">
-              <div className="studio-chat-next-icon"><BookOpen size={18} /></div>
-              <div>
-                <strong>La chat con le fonti sarà il prossimo modulo</strong>
-                <p>Prima completeremo la memoria delle conversazioni, la ricerca nei segmenti e le citazioni pagina per pagina. In questo momento non viene inviata alcuna richiesta a un modello AI.</p>
+          <div className={"studio-chat-content" + (messages.length > 0 ? " has-messages" : "")}>
+            {messagesLoading ? (
+              <div className="studio-chat-loading"><LoaderCircle size={19} /> Caricamento della conversazione…</div>
+            ) : messages.length > 0 ? (
+              <div className="studio-message-list">
+                {messages.map((message) => (
+                  <article className={"studio-message-card " + (message.role === "user" ? "is-user" : "is-assistant")} key={message.id}>
+                    <div className="studio-message-meta">
+                      <div>
+                        <span className="studio-message-role">{message.role === "assistant" ? "Notebook Scuola" : "Tu"}</span>
+                        <time dateTime={message.created_at}>{formatMessageDate(message.created_at)}</time>
+                      </div>
+                      {message.role === "assistant" && (
+                        <button
+                          type="button"
+                          className={"studio-message-bookmark" + (message.is_bookmarked ? " is-active" : "")}
+                          aria-label={message.is_bookmarked ? "Rimuovi dai segnalibri" : "Salva nei segnalibri"}
+                          title={message.is_bookmarked ? "Rimuovi dai segnalibri" : "Salva nei segnalibri"}
+                          disabled={bookmarkBusyId === message.id}
+                          onClick={() => void toggleMessageBookmark(message)}
+                        >
+                          {bookmarkBusyId === message.id ? <LoaderCircle size={15} /> : <Bookmark size={15} fill={message.is_bookmarked ? "currentColor" : "none"} />}
+                        </button>
+                      )}
+                    </div>
+                    <div className="studio-message-content">{message.content}</div>
+                    {message.citations.length > 0 && (
+                      <div className="studio-message-citations">
+                        <BookOpen size={13} />
+                        {message.citations.length} riferimenti alle fonti
+                      </div>
+                    )}
+                  </article>
+                ))}
+                <div className="studio-chat-history-footnote">Visualizzati gli ultimi messaggi salvati della conversazione.</div>
               </div>
-            </div>
+            ) : (
+              <div className="studio-chat-empty-state">
+                <div className="studio-chat-welcome">
+                  <div className="studio-chat-orb"><Sparkles size={25} /></div>
+                  <span className="studio-kicker">IL TUO SPAZIO, LE TUE FONTI</span>
+                  <h2>{activeConversation ? "Questa conversazione è pronta." : "Studia con le tue fonti."}<br />Al tuo ritmo.</h2>
+                  <p>La cronologia è già predisposta per conservare le domande, le risposte e i riferimenti alle pagine dei tuoi documenti.</p>
+                  <div className="studio-chat-metrics">
+                    <div><strong>{sources.length}</strong><span>fonti caricate</span></div>
+                    <div><strong>{selectedSourcesCount}</strong><span>fonti selezionate</span></div>
+                    <div><strong>{chunkedSourcesCount}</strong><span>fonti segmentate</span></div>
+                  </div>
+                </div>
 
-            <div className="studio-suggested-prompts">
-              <span className="studio-kicker">ESEMPI DI ATTIVITÀ</span>
-              <div>
-                <span>Spiegami un concetto passo per passo</span>
-                <span>Fammi un riepilogo fedele alle fonti</span>
-                <span>Preparami alcune domande di verifica</span>
+                <div className="studio-chat-next">
+                  <div className="studio-chat-next-icon"><BookOpen size={18} /></div>
+                  <div>
+                    <strong>{activeConversation ? "Conversazione salvata" : "Inizia creando una conversazione"}</strong>
+                    <p>{activeConversation
+                      ? "La chat AI non è ancora attiva. Quando verrà collegato il modello, le risposte saranno archiviate qui e potrai salvarle nei segnalibri."
+                      : "Crea una nuova conversazione: resterà nella cronologia di questo notebook. Nessuna richiesta viene inviata a un modello AI in questa fase."}</p>
+                  </div>
+                </div>
+                {!activeConversation && (
+                  <button type="button" className="button button-primary studio-start-chat-button" onClick={() => void createConversation()}>
+                    <Plus size={16} /> Crea la prima conversazione
+                  </button>
+                )}
               </div>
-            </div>
+            )}
           </div>
 
           <div className="studio-composer">
             <div className="studio-composer-field">
-              <textarea disabled rows={1} aria-label="Messaggio per l'assistente" placeholder="La chat sarà disponibile in una prossima fase…" />
+              <textarea disabled rows={1} aria-label="Messaggio per l'assistente" placeholder="La chat AI sarà disponibile dopo l'attivazione del modello…" />
               <button type="button" disabled aria-label="Invia messaggio"><Send size={17} /></button>
             </div>
-            <p>Assistente non ancora attivo · Nessuna chiamata AI o costo durante questa fase</p>
+            <p>Chat e cronologia predisposte · Risposte AI non ancora attive · Nessun costo di generazione</p>
           </div>
         </section>
 
@@ -940,6 +1242,31 @@ export default function StudioClient() {
             )}
           </div>
 
+
+          <div className="studio-tool-section studio-bookmarks-section">
+            <div className="studio-tool-section-title">
+              <span>MESSAGGI SALVATI</span>
+              <span>{bookmarks.length}</span>
+            </div>
+            {bookmarksLoading ? (
+              <div className="studio-notes-loading"><LoaderCircle size={15} /> Caricamento segnalibri…</div>
+            ) : bookmarks.length === 0 ? (
+              <div className="studio-notes-empty">
+                <Bookmark size={18} />
+                <span>Le risposte che salverai dalla chat compariranno qui, collegate alla conversazione originale.</span>
+              </div>
+            ) : (
+              <div className="studio-notes-list">
+                {bookmarks.map((bookmark) => (
+                  <button type="button" className="studio-bookmark-card" key={bookmark.id} onClick={() => openBookmark(bookmark)}>
+                    <div><Bookmark size={12} fill="currentColor" /><strong>{bookmark.conversation_title}</strong></div>
+                    <span>{bookmark.content}</span>
+                    <time dateTime={bookmark.bookmarked_at ?? bookmark.created_at}>{formatMessageDate(bookmark.bookmarked_at ?? bookmark.created_at)}</time>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="studio-custom-tools-note">
             <div className="studio-custom-tools-icon"><Sparkles size={17} /></div>
             <strong>Comandi personalizzati</strong>
