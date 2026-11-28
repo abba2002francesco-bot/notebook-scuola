@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, BookOpen, Check, FileQuestion, FileText, Image, Layers, LoaderCircle, Map, Menu, MessageCircle, Mic, Plus, Presentation, Search, Send, Sparkles, StickyNote, Trash2, Upload, Video, X } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, FileQuestion, FileText, Image, Layers, LoaderCircle, Map, Menu, MessageCircle, Mic, Plus, Presentation, Send, Sparkles, StickyNote, Trash2, Upload, Video, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { supabase } from "@/lib/supabase";
