@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, BookOpen, FileText, LoaderCircle, Plus, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, BookOpen, FileText, Layers, LoaderCircle, Plus, Trash2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { supabase } from "@/lib/supabase";
@@ -48,6 +48,8 @@ type Source = {
   status: "uploaded" | "processing" | "extracted" | "ready" | "failed";
   page_count: number | null;
   extracted_char_count: number;
+  chunk_count: number;
+  chunked_at: string | null;
   failure_code: string | null;
   created_at: string;
   processed_at: string | null;
@@ -84,6 +86,7 @@ export default function StudioClient() {
   const [sourcesLoading, setSourcesLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadStage, setUploadStage] = useState("");
+  const [chunkingId, setChunkingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const getAccessToken = useCallback(async () => {
@@ -319,6 +322,45 @@ export default function StudioClient() {
       setUploading(false);
       setUploadStage("");
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+
+  async function prepareSourceChunks(source: Source) {
+    if (source.status !== "extracted") return;
+
+    setError("");
+    setSuccess("");
+    setChunkingId(source.id);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("/api/studio/sources/chunk", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({ source_id: source.id }),
+      });
+      const result = await response.json().catch(() => ({})) as {
+        chunk_count?: number;
+        error?: string;
+        embedding_status?: string;
+      };
+
+      if (!response.ok || !Number.isInteger(result.chunk_count)) {
+        throw new Error(result.error || "Non è stato possibile creare i segmenti.");
+      }
+
+      if (selectedWorkspaceId) await loadSources(selectedWorkspaceId);
+      setSuccess(
+        "Testo suddiviso in " + result.chunk_count +
+        " segmenti con riferimenti alle pagine. Nessuna chiamata AI o costo per modelli."
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Preparazione dei segmenti non riuscita.");
+    } finally {
+      setChunkingId(null);
     }
   }
 
@@ -561,9 +603,28 @@ export default function StudioClient() {
                           {source.extracted_char_count > 0 && (
                             <span>{Number(source.extracted_char_count).toLocaleString("it-IT")} caratteri estratti</span>
                           )}
+                          {source.chunk_count > 0 && (
+                            <span>{source.chunk_count} segmenti pronti</span>
+                          )}
                         </div>
                         {source.failure_code === "no_text_content" && (
                           <p className="source-warning">Non è stato trovato testo selezionabile. I PDF scansionati richiederanno OCR.</p>
+                        )}
+                        {source.status === "extracted" && (
+                          <div style={{ marginTop: 10 }}>
+                            <button
+                              type="button"
+                              className="button button-secondary"
+                              style={{ padding: "6px 10px", fontSize: "0.82rem" }}
+                              disabled={chunkingId !== null}
+                              onClick={() => void prepareSourceChunks(source)}
+                            >
+                              {chunkingId === source.id ? <LoaderCircle size={14} /> : <Layers size={14} />}
+                              {chunkingId === source.id
+                                ? "Preparazione…"
+                                : source.chunk_count > 0 ? "Rigenera segmenti" : "Prepara segmenti"}
+                            </button>
+                          </div>
                         )}
                       </div>
                       <span className={"source-status source-status-" + source.status}>{sourceStatusLabel(source)}</span>
@@ -582,7 +643,7 @@ export default function StudioClient() {
               )}
 
               <p className="source-next-step">
-                In questa fase salviamo il testo con la relativa pagina o diapositiva. L'indice semantico, la chat con citazioni e gli strumenti AI arriveranno dopo.
+                Gli embedding, la ricerca semantica e la chat AI saranno attivati dopo la scelta e il collaudo del modello. In questa fase la segmentazione non effettua chiamate AI.
               </p>
             </section>
           )}

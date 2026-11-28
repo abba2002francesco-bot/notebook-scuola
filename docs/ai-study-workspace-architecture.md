@@ -262,3 +262,17 @@ Il testo estratto è conservato in \`study_source_pages\`. La tabella \`study_so
 
 La migrazione SQL incrementale per \`study_source_pages\`, il nuovo status \`extracted\`, il contatore caratteri e la quota atomica delle fonti sono stati applicati al progetto dati di sviluppo. I Supabase Security Advisors non segnalano findings. Rimangono da eseguire il test end-to-end con file PDF/DOCX/PPTX reali nell'anteprima e la verifica di cancellazione fisica degli oggetti Storage.
 
+
+
+## Segmentazione del testo — 28 novembre 2026
+
+La pipeline introduce una fase deterministica tra estrazione e embedding:
+
+1. Il testo viene conservato per pagina/diapositiva in \`study_source_pages\`.
+2. Un'operazione server-side legge soltanto le pagine del documento posseduto dall'utente.
+3. Ogni pagina viene suddivisa in segmenti di circa 1.800 caratteri, con sovrapposizione di 220 caratteri e preferenza per confini di paragrafo/frase.
+4. Ogni segmento mantiene il numero di pagina/diapositiva originale. Per DOCX, quando il formato non fornisce una paginazione stabile, il riferimento resta nullo: non vengono inventate pagine.
+5. La sostituzione dei segmenti è atomica tramite \`replace_study_source_chunks\`, eseguibile soltanto da \`service_role\`. I controlli SQL verificano proprietà, stato della fonte, limiti, indici progressivi e intervalli di pagina.
+6. Gli embedding restano \`NULL\` e la ricerca vettoriale li esclude finché il provider non sarà scelto e configurato. La segmentazione non effettua chiamate AI e non genera costi per token.
+
+La UI mostra il numero di segmenti e permette di rigenerarli. Test di database in transazione: RPC testata su una fonte sintetica, due segmenti persistiti correttamente, metadati embedding nulli e rollback verificato. Rimane il test reale dall'anteprima sulla fonte PDF già caricata.

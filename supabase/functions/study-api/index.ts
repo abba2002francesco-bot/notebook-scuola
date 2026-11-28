@@ -19,6 +19,9 @@ const BUCKET = "study-source-files";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_SOURCES_PER_WORKSPACE = 25;
 const MAX_WORKSPACE_BYTES = 100 * 1024 * 1024;
+const MAX_EXTRACTED_CHARS = 2_000_000;
+const CHUNK_TARGET_CHARS = 1_800;
+const CHUNK_OVERLAP_CHARS = 220;
 const ALLOWED_MIME = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -213,7 +216,7 @@ async function deleteWorkspace(request: Request, userId: string) {
   return json({ deleted: true });
 }
 
-const SOURCE_SELECT = "id,workspace_id,original_filename,mime_type,byte_size,status,page_count,extracted_char_count,failure_code,created_at,processed_at";
+const SOURCE_SELECT = "id,workspace_id,original_filename,mime_type,byte_size,status,page_count,extracted_char_count,chunk_count,chunked_at,failure_code,created_at,processed_at";
 
 async function listSources(request: Request, userId: string) {
   const workspaceId = new URL(request.url).searchParams.get("workspace_id");
@@ -611,6 +614,170 @@ async function deleteSource(request: Request, userId: string) {
   return json({ deleted: true });
 }
 
+
+function normalizePageForChunking(value: string) {
+  return value
+    .replace(/\u0000/g, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function findChunkBoundary(value: string, start: number) {
+  const hardEnd = Math.min(start + CHUNK_TARGET_CHARS, value.length);
+  if (hardEnd >= value.length) return hardEnd;
+  const earliest = start + Math.floor((hardEnd - start) * 0.62);
+  const window = value.slice(earliest, hardEnd);
+  const paragraphBreak = window.lastIndexOf("\n\n");
+  if (paragraphBreak >= 0) return earliest + paragraphBreak + 2;
+
+  let sentenceEnd = -1;
+  for (const match of window.matchAll(/[.!?;:][)"'’”»\]]*\s+/g)) {
+    sentenceEnd = match.index! + match[0].length;
+  }
+  if (sentenceEnd >= 0) return earliest + sentenceEnd;
+
+  const lineBreak = window.lastIndexOf("\n");
+  if (lineBreak >= 0) return earliest + lineBreak + 1;
+  const whitespace = window.lastIndexOf(" ");
+  if (whitespace >= 0) return earliest + whitespace + 1;
+  return hardEnd;
+}
+
+function buildPageChunks(
+  page: { page_index: number; page_number: number | null; content: string },
+  nextChunkIndex: number,
+) {
+  const value = normalizePageForChunking(page.content);
+  if (!value) return [];
+
+  const local: Array<{ start: number; content: string }> = [];
+  let start = 0;
+  while (start < value.length) {
+    const end = findChunkBoundary(value, start);
+    const chunkContent = value.slice(start, end).trim();
+    if (chunkContent) local.push({ start, content: chunkContent });
+    if (end >= value.length) break;
+
+    const nextStart = Math.max(start + 1, end - CHUNK_OVERLAP_CHARS);
+    const remaining = value.length - nextStart;
+    if (local.length > 0 && remaining <= CHUNK_TARGET_CHARS * 0.55) {
+      const previous = local[local.length - 1];
+      previous.content = value.slice(previous.start).trim();
+      break;
+    }
+    start = nextStart;
+  }
+
+  return local.map((chunk, index) => ({
+    chunk_index: nextChunkIndex + index,
+    content: chunk.content,
+    page_start: page.page_number,
+    page_end: page.page_number,
+  }));
+}
+
+function buildSourceChunks(pages: Array<{
+  page_index: number;
+  page_number: number | null;
+  content: string;
+}>) {
+  const chunks: Array<{
+    chunk_index: number;
+    content: string;
+    page_start: number | null;
+    page_end: number | null;
+  }> = [];
+  for (const page of pages) chunks.push(...buildPageChunks(page, chunks.length));
+
+  if (chunks.length < 1 || chunks.length > 2_000) {
+    throw new Error("STUDY_CHUNKS_COUNT_INVALID");
+  }
+  const totalChunkChars = chunks.reduce((total, chunk) => total + chunk.content.length, 0);
+  if (totalChunkChars > 4_000_000) throw new Error("STUDY_CHUNKS_TOO_LARGE");
+  return chunks;
+}
+
+async function chunkSource(request: Request, userId: string) {
+  let body: Record<string, unknown>;
+  try {
+    body = await readJson(request, 8_192);
+  } catch {
+    return json({ error: "Richiesta non valida." }, 400);
+  }
+
+  const sourceId = body.source_id;
+  if (!isUuid(sourceId)) return json({ error: "Documento non valido." }, 400);
+
+  const { data: source, error: sourceError } = await studyAdmin
+    .from("study_sources")
+    .select("id,workspace_id,status,page_count,extracted_char_count")
+    .eq("id", sourceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (sourceError || !source) return json({ error: "Documento non trovato." }, 404);
+  if (source.status !== "extracted") {
+    return json({ error: "Il documento deve avere il testo estratto prima di poter creare i segmenti." }, 409);
+  }
+
+  const { data: pages, error: pagesError } = await studyAdmin
+    .from("study_source_pages")
+    .select("page_index,page_number,content")
+    .eq("source_id", sourceId)
+    .eq("workspace_id", source.workspace_id)
+    .eq("user_id", userId)
+    .order("page_index", { ascending: true })
+    .limit(1_000);
+
+  if (pagesError) {
+    console.error("[study-api] load pages for chunking failed", pagesError.code ?? "unknown");
+    return json({ error: "Non è stato possibile leggere il testo estratto." }, 500);
+  }
+  if (!pages?.length) return json({ error: "Il documento non contiene pagine di testo da organizzare." }, 422);
+
+  const sourceChars = pages.reduce((total, page) => total + page.content.length, 0);
+  if (sourceChars < 1 || sourceChars > MAX_EXTRACTED_CHARS) {
+    return json({ error: "Il testo estratto non rientra nei limiti di elaborazione." }, 413);
+  }
+
+  let chunks: ReturnType<typeof buildSourceChunks>;
+  try {
+    chunks = buildSourceChunks(pages);
+  } catch (error) {
+    if (error instanceof Error && error.message === "STUDY_CHUNKS_COUNT_INVALID") {
+      return json({ error: "Il documento genera un numero di segmenti superiore al limite beta." }, 413);
+    }
+    return json({ error: "Non è stato possibile suddividere il testo in segmenti." }, 422);
+  }
+
+  const { data, error } = await studyAdmin.rpc("replace_study_source_chunks", {
+    p_user_id: userId,
+    p_workspace_id: source.workspace_id,
+    p_source_id: sourceId,
+    p_chunks: chunks,
+  });
+  if (error) {
+    console.error("[study-api] persist source chunks failed", error.code ?? "unknown");
+    return json({ error: "I segmenti sono stati preparati ma non è stato possibile salvarli." }, 500);
+  }
+
+  const chunkCount = Number(data);
+  if (!Number.isInteger(chunkCount) || chunkCount !== chunks.length) {
+    console.error("[study-api] chunk count mismatch", { sourceId, expected: chunks.length });
+    return json({ error: "Il numero dei segmenti salvati non corrisponde a quello previsto." }, 500);
+  }
+
+  return json({
+    source_id: sourceId,
+    chunk_count: chunkCount,
+    extracted_char_count: sourceChars,
+    page_count: source.page_count,
+    embedding_status: "not_generated",
+  });
+}
+
 Deno.serve(async (request: Request) => {
   if (!["GET", "POST", "DELETE"].includes(request.method)) {
     return json({ error: "Metodo non supportato." }, 405);
@@ -632,6 +799,7 @@ Deno.serve(async (request: Request) => {
   }
 
   if (route === "sources" && request.method === "GET") return await listSources(request, user.id);
+  if (route === "sources/chunk" && request.method === "POST") return await chunkSource(request, user.id);
   if (route === "sources" && request.method === "POST") return await createSource(request, user.id);
   if (route === "sources" && request.method === "DELETE") return await deleteSource(request, user.id);
   if (route === "sources/download-url" && request.method === "POST") {
