@@ -352,6 +352,19 @@ function LegacyRegisterPage() {
 }
 
 export default function RegisterPage() {
+  // Nella preview privata usiamo solo account già esistenti: niente nuove registrazioni sul progetto Auth di produzione.
+  if (process.env.NEXT_PUBLIC_PREVIEW_LOGIN_ONLY === "true") {
+    return (
+      <div className="container page">
+        <div className="panel auth-wrap">
+          <span className="eyebrow"><UserPlus size={14} /> Anteprima privata</span>
+          <h1>Registrazione disattivata.</h1>
+          <p>Per provare l'area Studio accedi con il tuo account Notebook Scuola già esistente. Questa anteprima non crea nuovi account.</p>
+          <Link className="button button-primary" style={{ width: "100%" }} href="/accedi">Accedi</Link>
+        </div>
+      </div>
+    );
+  }
   // Attivare solo dopo aver eseguito lo script SQL e configurato il Before User Created Hook su Supabase.
   return CONSENT_REGISTRATION_ENABLED ? <ConsentRegisterPage /> : <LegacyRegisterPage />;
 }
