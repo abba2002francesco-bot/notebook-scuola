@@ -1,16 +1,15 @@
--- NOTEBOOK SCUOLA — PROPOSTA SQL (NON ESEGUIRE IN PRODUZIONE)
--- Area studio indipendente. Documento di progetto: non è una migration applicabile.
---
--- Verifiche svolte sul progetto Supabase attivo:
--- - PostgreSQL 17.12
--- - regione eu-west-1
--- - pgvector disponibile (0.8.2) ma NON installato
--- - nessuna tabella study_* esistente al momento del controllo
+-- NOTEBOOK SCUOLA — SPECIFICA SQL DELL'AREA STUDIO
+-- Non eseguire come script monolitico in produzione.
+-- La struttura è applicata per incrementi nel progetto Supabase di SVILUPPO:
+-- bgdocyhfcejbutnvsyxl (eu-west-1, PostgreSQL 17.12).
+-- Stato corrente: pgvector 0.8.2 installato; 7 tabelle study_*; bucket privato.
+-- Questo file mantiene una descrizione consolidata dello schema atteso, non
+-- sostituisce le migration incrementali già applicate.
 --
 -- Scelte di sicurezza:
 -- - tutti i dati privati hanno user_id e RLS;
--- - il browser ha accesso SELECT ai propri dati, ma non scrive direttamente nelle
---   tabelle di studio;
+-- - anon e authenticated non hanno privilegi diretti sulle tabelle di studio;
+--   accesso e scritture passano dalla Edge Function server-side;
 -- - tutte le scritture passano da Route Handlers server-side che verificano il
 --   JWT Supabase con auth.getUser(token), verificano la proprietà del workspace,
 --   applicano quote e solo dopo usano la chiave amministrativa;
@@ -96,6 +95,29 @@ create table public.study_sources (
 
 create index study_sources_workspace_created_idx
   on public.study_sources (workspace_id, user_id, created_at desc);
+
+-- Testo estratto, conservato per pagina PDF, diapositiva PPTX o documento DOCX.
+-- DOCX non ha una paginazione stabile: page_number resta NULL e page_index=0.
+create table public.study_source_pages (
+  id uuid primary key default gen_random_uuid(),
+  source_id uuid not null,
+  workspace_id uuid not null,
+  user_id uuid not null,
+  page_index integer not null,
+  page_number integer,
+  content text not null,
+  created_at timestamptz not null default now(),
+  constraint study_source_pages_source_owner_fkey
+    foreign key (source_id, workspace_id, user_id)
+    references public.study_sources (id, workspace_id, user_id) on delete cascade,
+  constraint study_source_pages_index_valid check (page_index >= 0),
+  constraint study_source_pages_number_valid check (page_number is null or page_number >= 1),
+  constraint study_source_pages_content_not_empty check (char_length(btrim(content)) > 0),
+  constraint study_source_pages_source_index_unique unique (source_id, page_index)
+);
+
+create index study_source_pages_workspace_source_idx
+  on public.study_source_pages (workspace_id, user_id, source_id, page_index);
 
 create table public.study_source_chunks (
   id uuid primary key default gen_random_uuid(),
@@ -207,6 +229,7 @@ create index study_usage_user_created_idx
 -- per anon/authenticated in questa prima versione.
 alter table public.study_workspaces enable row level security;
 alter table public.study_sources enable row level security;
+alter table public.study_source_pages enable row level security;
 alter table public.study_source_chunks enable row level security;
 alter table public.study_conversations enable row level security;
 alter table public.study_messages enable row level security;
@@ -242,6 +265,7 @@ grant usage on schema extensions to service_role;
 revoke all on
   public.study_workspaces,
   public.study_sources,
+  public.study_source_pages,
   public.study_source_chunks,
   public.study_conversations,
   public.study_messages,
@@ -253,14 +277,15 @@ from public, anon, authenticated;
 grant all on
   public.study_workspaces,
   public.study_sources,
+  public.study_source_pages,
   public.study_source_chunks,
   public.study_conversations,
   public.study_messages,
   public.study_usage_events
 to service_role;
 
--- Ricerca vettoriale: SECURITY INVOKER mantiene i vincoli RLS del chiamante.
--- Non accetta user_id dal client: lo ricava esclusivamente da auth.uid().
+-- Ricerca vettoriale: SECURITY INVOKER. La Edge Function passa esclusivamente
+-- user_id ricavato dal token Auth primario già verificato con auth.getUser().
 drop function if exists public.match_study_source_chunks(
   uuid, extensions.vector, integer, double precision, text
 );
@@ -370,6 +395,87 @@ revoke all on function public.create_study_workspace_with_quota(
 
 grant execute on function public.create_study_workspace_with_quota(
   uuid, text, text, text, text
+) to service_role;
+
+-- Prenotazione documento e quote atomiche per workspace.
+create or replace function public.create_study_source_with_quota(
+  p_user_id uuid,
+  p_workspace_id uuid,
+  p_source_id uuid,
+  p_filename text,
+  p_storage_path text,
+  p_mime_type text,
+  p_byte_size bigint,
+  p_upload_expires_at timestamptz
+)
+returns public.study_sources
+language plpgsql
+security invoker
+set search_path = ''
+as $function$
+declare
+  v_workspace public.study_workspaces;
+  v_count integer;
+  v_total_bytes bigint;
+  v_source public.study_sources;
+begin
+  if p_user_id is null or p_workspace_id is null or p_source_id is null then
+    raise exception using errcode = '22004', message = 'STUDY_SOURCE_REQUIRED_FIELDS';
+  end if;
+
+  if p_byte_size is null or p_byte_size < 1 or p_byte_size > 20971520 then
+    raise exception using errcode = '22023', message = 'STUDY_SOURCE_SIZE_INVALID';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(p_workspace_id::text, 0)
+  );
+
+  select *
+    into v_workspace
+  from public.study_workspaces as w
+  where w.id = p_workspace_id
+    and w.user_id = p_user_id
+  for update;
+
+  if not found then
+    raise exception using errcode = 'P0001', message = 'STUDY_WORKSPACE_NOT_FOUND';
+  end if;
+
+  select count(*)::integer, coalesce(sum(s.byte_size), 0)::bigint
+    into v_count, v_total_bytes
+  from public.study_sources as s
+  where s.workspace_id = p_workspace_id
+    and s.user_id = p_user_id;
+
+  if v_count >= 25 then
+    raise exception using errcode = 'P0001', message = 'STUDY_SOURCE_LIMIT_REACHED';
+  end if;
+
+  if v_total_bytes + p_byte_size > 104857600 then
+    raise exception using errcode = 'P0001', message = 'STUDY_WORKSPACE_FILE_LIMIT_REACHED';
+  end if;
+
+  insert into public.study_sources (
+    id, workspace_id, user_id, original_filename, storage_path,
+    mime_type, byte_size, status, upload_expires_at
+  )
+  values (
+    p_source_id, p_workspace_id, p_user_id, p_filename, p_storage_path,
+    p_mime_type, p_byte_size, 'uploaded', p_upload_expires_at
+  )
+  returning * into v_source;
+
+  return v_source;
+end;
+$function$;
+
+revoke all on function public.create_study_source_with_quota(
+  uuid, uuid, uuid, text, text, text, bigint, timestamptz
+) from public, anon, authenticated;
+
+grant execute on function public.create_study_source_with_quota(
+  uuid, uuid, uuid, text, text, text, bigint, timestamptz
 ) to service_role;
 
 -- Bucket privato per documenti originali. 20 MiB per file nella beta.
