@@ -212,3 +212,24 @@ Primo endpoint supportato: `/functions/v1/study-api/workspaces`:
 - DELETE: eliminazione filtrata per ID e proprietario.
 
 La quota beta iniziale è 5 workspace per utente. La pagina Next.js privata `/studio` e il proxy `/api/studio/workspaces` sono stati aggiunti al ramo di sviluppo. La pagina è impostata `noindex` e `robots.txt` la esclude dall'indicizzazione. Non è stato aggiunto alcun link nella navigazione pubblica.
+
+
+## Quota beta e verifica transazionale — 28 novembre 2026
+
+La quota iniziale di 5 notebook personali per utente è applicata da una funzione SQL `create_study_workspace_with_quota` riservata al ruolo `service_role`. La funzione usa un advisory transaction lock per utente, quindi il conteggio e l'inserimento sono serializzati anche quando arrivano richieste simultanee.
+
+Verifiche sul database di sviluppo:
+- funzione eseguibile da `service_role`;
+- funzione non eseguibile da `anon` né da `authenticated`;
+- chiamata di prova dentro una transazione seguita da `ROLLBACK`: la funzione ha restituito un ID valido e il conteggio finale delle righe è rimasto a zero;
+- nessun finding dai Supabase Security Advisors dopo gli aggiornamenti.
+
+La Edge Function `study-api` è stata aggiornata alla versione 2 per usare la funzione atomica. Il sorgente è tracciato nel repository in `supabase/functions/study-api/index.ts`.
+
+## Stato UI e anteprima
+
+La pagina privata `/studio` è stata implementata con elenco notebook, creazione, eliminazione e indicatore quota 0–5. Il layout responsive è stato aggiunto a `app/globals.css`. Le API passano dal proxy Next.js `/api/studio/workspaces` alla Edge Function del progetto dati.
+
+La build Vercel dell'area studio e degli endpoint Next.js ha completato TypeScript e compilazione nelle anteprime precedenti. L'ultima anteprima deve essere ricontrollata dopo il commit di stile/sorgente. Non è stato eseguito alcun merge in `main`.
+
+**Limite attuale:** non è ancora stato eseguito un test end-to-end con una sessione browser reale; manca quindi la conferma pratica del flusso autenticato GET/POST/DELETE. Prima di considerare la prima schermata completata, un account di test dovrà creare un workspace nell'anteprima e verificarne la persistenza e l'eliminazione. La UI non è collegata al menu pubblico e il sito di produzione resta invariato.
