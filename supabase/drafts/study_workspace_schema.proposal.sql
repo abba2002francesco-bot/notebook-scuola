@@ -103,7 +103,8 @@ create table public.study_source_chunks (
   content text not null,
   page_start integer,
   page_end integer,
-  embedding extensions.vector(1024) not null,
+  embedding extensions.vector not null,
+  embedding_dimensions smallint not null default 1024,
   embedding_model text not null default 'mistral-embed',
   created_at timestamptz not null default now(),
   constraint study_chunks_source_owner_fkey
@@ -118,6 +119,9 @@ create table public.study_source_chunks (
       (page_start is not null and page_start >= 1
        and (page_end is null or page_end >= page_start))
     ),
+  constraint study_chunks_embedding_dimensions_valid
+    check (embedding_dimensions between 1 and 4096
+      and extensions.vector_dims(embedding) = embedding_dimensions),
   constraint study_chunks_embedding_model_length
     check (char_length(embedding_model) between 1 and 100),
   constraint study_chunks_source_index_unique unique (source_id, chunk_index)
@@ -260,7 +264,7 @@ to service_role;
 -- Non accetta user_id dal client: lo ricava esclusivamente da auth.uid().
 create or replace function public.match_study_source_chunks(
   p_workspace_id uuid,
-  p_query_embedding extensions.vector(1024),
+  p_query_embedding extensions.vector,
   p_match_count integer default 8,
   p_min_similarity double precision default 0.20,
   p_embedding_model text default 'mistral-embed'
@@ -291,6 +295,7 @@ as $function$
   where c.workspace_id = p_workspace_id
     and c.user_id = (select auth.uid())
     and c.embedding_model = p_embedding_model
+    and c.embedding_dimensions = extensions.vector_dims(p_query_embedding)
     and c.embedding is not null
     and 1 - (c.embedding operator(extensions.<=>) p_query_embedding)
       >= greatest(0, least(1, coalesce(p_min_similarity, 0.20)))
