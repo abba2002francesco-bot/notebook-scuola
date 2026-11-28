@@ -111,15 +111,14 @@ Il costo zero assoluto non può essere garantito se si esauriscono i crediti gra
 - Criteri del benchmark e soglia minima di qualità.
 
 
-## Verifica dell'infrastruttura e ambiente di sviluppo — 28 novembre 2026
+## Controllo iniziale del Supabase principale — 28 novembre 2026
 
-Questa sezione riporta dati osservati sul progetto collegato a `notebookscuola.it`, non ipotesi.
+Questa sezione riporta il controllo iniziale sul progetto Supabase collegato a `notebookscuola.it`; in seguito l'ambiente Studio è stato creato separatamente come descritto più sotto.
 
 - Vercel: il progetto di produzione corretto è `free-notebook`; il ramo di sviluppo è separato da `main`.
-- Supabase: progetto attivo nella regione `eu-west-1`, PostgreSQL 17.12.
-- Nel database attivo non esistono ancora tabelle `study_*`.
-- L'estensione `vector` è disponibile alla versione predefinita 0.8.2 ma non è installata.
-- Storage contiene un solo bucket attuale, `notebook-images`, pubblico e destinato alle anteprime del catalogo. Non deve essere riutilizzato per documenti privati.
+- Il progetto Supabase principale è stato controllato prima di creare l'ambiente dedicato. Le tabelle del catalogo e di Auth sono rimaste separate.
+- Al controllo iniziale non esistevano tabelle `study_*` nel progetto principale.
+- Il bucket pubblico `notebook-images` è destinato alle anteprime del catalogo e non viene riutilizzato per documenti privati.
 - La cronologia migrazioni Supabase registra attualmente una sola migrazione (`registration_authorization_hook`), mentre lo schema applicativo esistente include altre tabelle già operative. Ogni futura migrazione deve quindi essere additiva e controllata; non tentare di ricreare lo schema di base.
 
 ### Modello embedding proposto
@@ -172,10 +171,11 @@ Per gli embedding, il catalogo Gateway espone `mistral/mistral-embed` a $0,10 pe
 
 Il progetto Supabase separato `notebook-scuola-ai-dev` è stato creato nell'organizzazione esistente, nella regione `eu-west-1`, con preventivo di creazione $0/mese. Project ref: `bgdocyhfcejbutnvsyxl`. È `ACTIVE_HEALTHY`.
 
-La prima struttura di studio è stata applicata a questo progetto vuoto, non al database in produzione. L'Auth rimane quello del progetto principale; il progetto dati non contiene account duplicati. Sono presenti sei tabelle nuove:
+La prima struttura di studio è stata applicata a questo progetto vuoto, non al database in produzione. L'Auth rimane quello del progetto principale; il progetto dati non contiene account duplicati. Sono presenti sette tabelle nuove:
 - `study_workspaces`
 - `study_sources`
-- `study_source_chunks`
+- `study_source_pages` (testo estratto, per pagina o diapositiva)
+- `study_source_chunks` (predisposta per i chunk con embedding; indicizzazione non ancora attiva)
 - `study_conversations`
 - `study_messages`
 - `study_usage_events`
@@ -184,14 +184,12 @@ La prima struttura di studio è stata applicata a questo progetto vuoto, non al 
 
 ### Verifiche svolte
 
-- Tutte e sei le tabelle hanno RLS attivo e una policy SELECT per il proprietario.
-- Le scritture sulle tabelle di studio sono riservate al backend/service role.
-- Il ruolo `anon` non ha privilegi SELECT sulle tabelle di studio.
-- `authenticated` non ha SELECT né INSERT sulle tabelle di studio.
-- La funzione `match_study_source_chunks` è `SECURITY INVOKER`, eseguibile da `authenticated`, non da `anon`.
-- La funzione di ricerca vettoriale ha superato uno smoke test con zero risultati su un workspace inesistente.
-- Il bucket è stato verificato come privato e le due policy Storage per upload/read richiedono un path già autorizzato per il proprietario.
-- Supabase Security Advisors non segnala finding sulle nuove tabelle e policy.
+- RLS è attivo su tutte e sette le tabelle; i ruoli `anon` e `authenticated` non hanno privilegi diretti sulle tabelle di studio. Il servizio usa il solo `service_role` nell'Edge Function.
+- Il ruolo `service_role` ha privilegi per le operazioni server-side; la tabella `study_source_pages` ha anche una policy esplicita riservata a questo ruolo.
+- Le funzioni SQL di ricerca e quota sono eseguibili soltanto da `service_role`, non da `anon` né da `authenticated`.
+- La funzione di ricerca vettoriale ha superato uno smoke test con zero risultati su un workspace inesistente; gli embeddings non sono ancora generati.
+- Il bucket `study-source-files` è privato. Upload e download usano URL firmati emessi dopo la verifica della proprietà; non sono state create policy Storage per accesso diretto dal browser.
+- Supabase Security Advisors restituisce `lints: []` sulle nuove tabelle e policy.
 
 Un primo controllo aveva rilevato privilegi SELECT ereditati dal ruolo `anon`; sono stati revocati esplicitamente e i privilegi minimi sono stati concessi nuovamente. Il controllo successivo ha confermato: anon SELECT = false; authenticated SELECT = true; authenticated INSERT = false; service_role INSERT = true.
 
@@ -224,7 +222,7 @@ Verifiche sul database di sviluppo:
 - chiamata di prova dentro una transazione seguita da `ROLLBACK`: la funzione ha restituito un ID valido e il conteggio finale delle righe è rimasto a zero;
 - nessun finding dai Supabase Security Advisors dopo gli aggiornamenti.
 
-La Edge Function `study-api` è stata aggiornata alla versione 2 per usare la funzione atomica. Il sorgente è tracciato nel repository in `supabase/functions/study-api/index.ts`.
+La Edge Function `study-api` è stata aggiornata alla versione 3. Oltre alle funzioni workspace gestisce prenotazione delle fonti, upload firmato, generazione di URL firmati di download, persistenza del testo estratto, stato di errore e cancellazione dei file. Il sorgente è tracciato nel repository in `supabase/functions/study-api/index.ts`.
 
 ## Stato UI e anteprima
 
@@ -236,3 +234,31 @@ La build Vercel dell'area studio e degli endpoint Next.js ha completato TypeScri
 
 
 Ulteriore test della quota: in una transazione di prova sono stati creati cinque workspace per un utente sintetico; la sesta creazione ha restituito l'errore previsto `STUDY_WORKSPACE_LIMIT_REACHED`. La transazione è stata annullata e il controllo successivo ha confermato zero righe di test persistenti.
+
+## Upload ed estrazione documenti — 28 novembre 2026
+
+La fase di caricamento è stata implementata sul ramo \`feature/independent-study-workspace\` e usa esclusivamente il Supabase di sviluppo.
+
+### Flusso tecnico
+
+1. Il browser invia al backend soltanto i metadati del file e l'ID del workspace.
+2. Next.js verifica la sessione con l'Auth principale; l'Edge Function ripete la verifica con \`auth.getUser(token)\`.
+3. La funzione SQL \`create_study_source_with_quota\` verifica proprietà del workspace e quote in modo atomico: massimo 25 documenti e 100 MiB complessivi per workspace.
+4. L'Edge Function crea una riga fonte e un URL firmato di upload, valido per due ore. Il file va direttamente nel bucket privato \`study-source-files\`; il browser non riceve mai la chiave amministrativa.
+5. La route Node.js di Vercel recupera il file tramite URL firmato di download e ne controlla l'origine, la dimensione e il formato effettivo.
+6. Estrae il testo e lo salva in gruppi limitati, mantenendo gli indici pagina/diapositiva. Lo stato passa a \`extracted\` solo dopo il completamento di tutti i gruppi.
+
+### Formati e limiti beta attuali
+
+- PDF: testo selezionabile, massimo 20 MiB e 1.000 pagine; viene mantenuto il numero di pagina. I PDF composti soltanto da scansioni non sono ancora supportati perché OCR non è attivo.
+- DOCX: estrazione dei paragrafi e del testo; Word non offre una paginazione stabile nel formato, quindi il testo viene conservato come un unico contenuto con indice pagina nullo.
+- PPTX: estrazione del testo per diapositiva, con numero della diapositiva.
+- Limite di estrazione: 2 milioni di caratteri per documento.
+- File non testuali, protetti da password o danneggiati vengono segnalati come non elaborabili; non vengono dichiarati pronti.
+
+Il testo estratto è conservato in \`study_source_pages\`. La tabella \`study_source_chunks\` resta predisposta, ma chunking, embeddings, retrieval, chat con citazioni e generazione AI non sono ancora attivi. Non viene effettuata alcuna chiamata a modelli AI o a API a pagamento durante l'upload.
+
+### Stato dei test
+
+La migrazione SQL incrementale per \`study_source_pages\`, il nuovo status \`extracted\`, il contatore caratteri e la quota atomica delle fonti sono stati applicati al progetto dati di sviluppo. I Supabase Security Advisors non segnalano findings. Rimangono da eseguire il test end-to-end con file PDF/DOCX/PPTX reali nell'anteprima e la verifica di cancellazione fisica degli oggetti Storage.
+
