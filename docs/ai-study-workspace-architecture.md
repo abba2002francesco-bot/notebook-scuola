@@ -233,3 +233,6 @@ La pagina privata `/studio` è stata implementata con elenco notebook, creazione
 La build Vercel dell'area studio e degli endpoint Next.js ha completato TypeScript e compilazione nelle anteprime precedenti. L'ultima anteprima deve essere ricontrollata dopo il commit di stile/sorgente. Non è stato eseguito alcun merge in `main`.
 
 **Limite attuale:** non è ancora stato eseguito un test end-to-end con una sessione browser reale; manca quindi la conferma pratica del flusso autenticato GET/POST/DELETE. Prima di considerare la prima schermata completata, un account di test dovrà creare un workspace nell'anteprima e verificarne la persistenza e l'eliminazione. La UI non è collegata al menu pubblico e il sito di produzione resta invariato.
+
+
+Ulteriore test della quota: in una transazione di prova sono stati creati cinque workspace per un utente sintetico; la sesta creazione ha restituito l'errore previsto `STUDY_WORKSPACE_LIMIT_REACHED`. La transazione è stata annullata e il controllo successivo ha confermato zero righe di test persistenti.
