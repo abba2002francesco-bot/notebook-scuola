@@ -347,6 +347,8 @@ export default function StudioClient() {
     }
   }
 
+  const selectedWorkspace = workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null;
+
   if (loading || (user && listLoading && workspaces.length === 0)) {
     return <div className="container page"><div className="loading">Caricamento area studio…</div></div>;
   }
@@ -467,9 +469,122 @@ export default function StudioClient() {
                     <span>{workspace.education_level || "Livello non impostato"}</span>
                     <span>{new Date(workspace.created_at).toLocaleDateString("it-IT")}</span>
                   </div>
+                  <div className="notebook-card-actions">
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={() => setSelectedWorkspaceId(workspace.id)}
+                    >
+                      <FileText size={15} /> Gestisci fonti
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>
+          )}
+
+          {selectedWorkspace && (
+            <section className="source-manager" aria-labelledby="study-sources-title">
+              <div className="source-manager-heading">
+                <div>
+                  <span className="eyebrow">Fonti del notebook</span>
+                  <h2 id="study-sources-title">{selectedWorkspace.title}</h2>
+                  <p>Carica PDF, Word o PowerPoint. I documenti restano privati e vengono trasformati in testo consultabile per la fase AI successiva.</p>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Chiudi gestione fonti"
+                  title="Chiudi"
+                  onClick={() => { setSelectedWorkspaceId(null); setSources([]); setError(""); setSuccess(""); }}
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="source-toolbar">
+                <div className="notice" style={{ margin: 0 }}>
+                  Massimo 20 MB per file · 25 file · 100 MB per notebook
+                </div>
+                <button
+                  type="button"
+                  className="button button-primary"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {uploading ? <LoaderCircle size={16} /> : <Upload size={16} />}
+                  {uploading ? "Caricamento…" : "Carica documento"}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                  hidden
+                  disabled={uploading}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void uploadSource(file);
+                  }}
+                />
+              </div>
+
+              {uploading && (
+                <div className="source-progress" role="status">
+                  <LoaderCircle size={16} /> {uploadStage || "Elaborazione del documento…"}
+                </div>
+              )}
+
+              {sourcesLoading ? (
+                <div className="loading">Caricamento documenti…</div>
+              ) : sources.length === 0 ? (
+                <div className="empty-state source-empty">
+                  <FileText size={26} />
+                  <h3>Nessuna fonte ancora</h3>
+                  <p>Carica il primo PDF, DOCX o PPTX per iniziare a costruire la raccolta di studio.</p>
+                </div>
+              ) : (
+                <div className="source-list">
+                  {sources.map((source) => (
+                    <article className="source-row" key={source.id}>
+                      <div className="source-icon"><FileText size={20} /></div>
+                      <div className="source-main">
+                        <strong>{source.original_filename}</strong>
+                        <div className="source-meta">
+                          <span>{formatFileSize(Number(source.byte_size))}</span>
+                          <span>
+                            {source.page_count
+                              ? (source.mime_type === MIME_BY_EXTENSION.pptx
+                                ? source.page_count + " diapositive"
+                                : source.page_count + " pagine")
+                              : "Paginazione non disponibile"}
+                          </span>
+                          {source.extracted_char_count > 0 && (
+                            <span>{Number(source.extracted_char_count).toLocaleString("it-IT")} caratteri estratti</span>
+                          )}
+                        </div>
+                        {source.failure_code === "no_text_content" && (
+                          <p className="source-warning">Non è stato trovato testo selezionabile. I PDF scansionati richiederanno OCR.</p>
+                        )}
+                      </div>
+                      <span className={"source-status source-status-" + source.status}>{sourceStatusLabel(source)}</span>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        title="Elimina documento"
+                        aria-label={"Elimina " + source.original_filename}
+                        onClick={() => void deleteSource(source)}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              )}
+
+              <p className="source-next-step">
+                In questa fase salviamo il testo con la relativa pagina o diapositiva. L'indice semantico, la chat con citazioni e gli strumenti AI arriveranno dopo.
+              </p>
+            </section>
           )}
         </div>
       </section>
