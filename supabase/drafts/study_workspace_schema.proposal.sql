@@ -236,6 +236,7 @@ create policy "Users read own study usage events"
   on public.study_usage_events for select to authenticated
   using ((select auth.uid()) = user_id);
 
+revoke usage on schema extensions from public, anon, authenticated;
 grant usage on schema extensions to service_role;
 
 revoke all on
