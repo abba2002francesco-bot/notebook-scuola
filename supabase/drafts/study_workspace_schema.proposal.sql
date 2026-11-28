@@ -62,10 +62,11 @@ create table public.study_sources (
   status text not null default 'uploaded',
   page_count integer,
   extracted_token_count integer,
+  extracted_char_count bigint not null default 0,
   failure_code text,
   created_at timestamptz not null default now(),
   processed_at timestamptz,
-  upload_expires_at timestamptz not null default (now() + interval '20 minutes'),
+  upload_expires_at timestamptz not null default (now() + interval '2 hours'),
   constraint study_sources_storage_path_owner_scope
     check (storage_path like user_id::text || '/' || workspace_id::text || '/' || id::text || '/%'),
   constraint study_sources_workspace_owner_fkey
@@ -84,11 +85,13 @@ create table public.study_sources (
   constraint study_sources_sha256_format
     check (sha256_hex is null or sha256_hex ~ '^[a-f0-9]{64}$'),
   constraint study_sources_status_allowed
-    check (status in ('uploaded', 'processing', 'ready', 'failed')),
+    check (status in ('uploaded', 'processing', 'extracted', 'ready', 'failed')),
   constraint study_sources_page_count_valid
     check (page_count is null or page_count between 1 and 10000),
   constraint study_sources_token_count_valid
     check (extracted_token_count is null or extracted_token_count >= 0),
+  constraint study_sources_extracted_char_count_valid
+    check (extracted_char_count >= 0),
   constraint study_sources_id_workspace_user_unique
     unique (id, workspace_id, user_id)
 );
@@ -224,9 +227,8 @@ create table public.study_usage_events (
 create index study_usage_user_created_idx
   on public.study_usage_events (user_id, created_at desc);
 
--- RLS: lettura dei soli dati appartenenti all'utente autenticato.
--- Le scritture sono server-side: non creare policy INSERT/UPDATE/DELETE
--- per anon/authenticated in questa prima versione.
+-- RLS è abilitato su tutte le tabelle. I privilegi diretti ad anon e authenticated
+-- vengono revocati sotto: solo la Edge Function usa service_role per accedere ai dati.
 alter table public.study_workspaces enable row level security;
 alter table public.study_sources enable row level security;
 alter table public.study_source_pages enable row level security;
