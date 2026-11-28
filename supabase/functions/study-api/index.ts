@@ -382,17 +382,19 @@ async function getSourceDownloadUrl(request: Request, userId: string) {
 async function completeSource(request: Request, userId: string) {
   let body: Record<string, unknown>;
   try {
-    body = await readJson(request, 6 * 1024 * 1024);
+    body = await readJson(request, 2 * 1024 * 1024);
   } catch (error) {
     return json({ error: error instanceof Error && error.message === "REQUEST_TOO_LARGE"
-      ? "Il testo estratto supera il limite consentito." : "Dati estratti non validi." }, 413);
+      ? "Il gruppo di pagine estratte supera il limite consentito." : "Dati estratti non validi." }, 413);
   }
 
   const sourceId = body.source_id;
   const pages = body.pages;
   const pageCount = body.page_count;
-  if (!isUuid(sourceId) || !Array.isArray(pages) || pages.length < 1 || pages.length > 1_000) {
-    return json({ error: "Risultato dell'estrazione non valido." }, 400);
+  const isFinal = body.is_final === true;
+
+  if (!isUuid(sourceId) || !Array.isArray(pages) || pages.length < 1 || pages.length > 100) {
+    return json({ error: "Gruppo di pagine estratte non valido." }, 400);
   }
   if (pageCount !== null && pageCount !== undefined &&
       (!Number.isInteger(pageCount) || Number(pageCount) < 1 || Number(pageCount) > 10_000)) {
@@ -415,7 +417,7 @@ async function completeSource(request: Request, userId: string) {
   }
 
   const rows: Array<Record<string, unknown>> = [];
-  let totalChars = 0;
+  let batchChars = 0;
   let previousIndex = -1;
 
   for (const candidate of pages) {
@@ -436,11 +438,7 @@ async function completeSource(request: Request, userId: string) {
     }
 
     previousIndex = Number(pageIndex);
-    totalChars += text.length;
-    if (totalChars > 2_000_000) {
-      return json({ error: "Il documento contiene troppo testo per la beta (massimo 2 milioni di caratteri)." }, 413);
-    }
-
+    batchChars += text.length;
     rows.push({
       source_id: sourceId,
       workspace_id: source.workspace_id,
@@ -449,6 +447,10 @@ async function completeSource(request: Request, userId: string) {
       page_number: pageNumber === null || pageNumber === undefined ? null : Number(pageNumber),
       content: text,
     });
+  }
+
+  if (batchChars > 500_000) {
+    return json({ error: "Il gruppo di pagine è troppo grande. Riprova con un gruppo più piccolo." }, 413);
   }
 
   const { error: statusError } = await studyAdmin
@@ -462,17 +464,48 @@ async function completeSource(request: Request, userId: string) {
     return json({ error: "Non è stato possibile salvare il testo estratto." }, 500);
   }
 
-  await studyAdmin.from("study_source_pages").delete().eq("source_id", sourceId).eq("user_id", userId);
+  const { error: pagesError } = await studyAdmin
+    .from("study_source_pages")
+    .upsert(rows, { onConflict: "source_id,page_index" });
 
-  const { error: pagesError } = await studyAdmin.from("study_source_pages").insert(rows);
   if (pagesError) {
-    await studyAdmin.from("study_source_pages").delete().eq("source_id", sourceId).eq("user_id", userId);
     await studyAdmin.from("study_sources").update({
       status: "failed",
       failure_code: "extraction_storage_error",
     }).eq("id", sourceId).eq("user_id", userId);
     console.error("[study-api] persist extracted pages failed", pagesError.code ?? "unknown");
     return json({ error: "Il testo è stato estratto ma non è stato possibile salvarlo." }, 500);
+  }
+
+  if (!isFinal) {
+    return json({ saved: true, source_id: sourceId, batch_pages: rows.length });
+  }
+
+  const { data: allPages, error: countError } = await studyAdmin
+    .from("study_source_pages")
+    .select("page_index,content")
+    .eq("source_id", sourceId)
+    .eq("user_id", userId)
+    .order("page_index", { ascending: true })
+    .limit(1_000);
+
+  if (countError || !allPages?.length) {
+    await studyAdmin.from("study_sources").update({
+      status: "failed",
+      failure_code: "extraction_storage_error",
+    }).eq("id", sourceId).eq("user_id", userId);
+    console.error("[study-api] verify extracted pages failed", countError?.code ?? "empty");
+    return json({ error: "Non è stato possibile verificare tutte le pagine estratte." }, 500);
+  }
+
+  const totalChars = allPages.reduce((total, page) => total + page.content.length, 0);
+  if (totalChars > 2_000_000) {
+    await studyAdmin.from("study_source_pages").delete().eq("source_id", sourceId).eq("user_id", userId);
+    await studyAdmin.from("study_sources").update({
+      status: "failed",
+      failure_code: "document_too_large",
+    }).eq("id", sourceId).eq("user_id", userId);
+    return json({ error: "Il documento contiene più di 2 milioni di caratteri: limite beta superato." }, 413);
   }
 
   const finalPageCount = pageCount === null || pageCount === undefined ? null : Number(pageCount);
@@ -491,7 +524,6 @@ async function completeSource(request: Request, userId: string) {
     .single();
 
   if (updateError || !updated) {
-    await studyAdmin.from("study_source_pages").delete().eq("source_id", sourceId).eq("user_id", userId);
     await studyAdmin.from("study_sources").update({
       status: "failed",
       failure_code: "extraction_storage_error",
@@ -500,7 +532,7 @@ async function completeSource(request: Request, userId: string) {
     return json({ error: "Non è stato possibile completare l'elaborazione del documento." }, 500);
   }
 
-  return json({ extracted: true, source: updated, page_rows: rows.length, extracted_char_count: totalChars });
+  return json({ extracted: true, source: updated, page_rows: allPages.length, extracted_char_count: totalChars });
 }
 
 async function failSource(request: Request, userId: string) {
