@@ -615,6 +615,138 @@ async function deleteSource(request: Request, userId: string) {
 }
 
 
+const NOTE_SELECT = "id,workspace_id,user_id,title,content,created_at,updated_at";
+const MAX_NOTE_CONTENT_CHARS = 50_000;
+
+async function listNotes(request: Request, userId: string) {
+  const workspaceId = new URL(request.url).searchParams.get("workspace_id");
+  if (!isUuid(workspaceId)) return json({ error: "Notebook non valido." }, 400);
+
+  const { data: workspace, error: workspaceError } = await studyAdmin
+    .from("study_workspaces")
+    .select("id")
+    .eq("id", workspaceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (workspaceError || !workspace) return json({ error: "Notebook non trovato." }, 404);
+
+  const { data, error } = await studyAdmin
+    .from("study_notes")
+    .select(NOTE_SELECT)
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false })
+    .limit(100);
+
+  if (error) {
+    console.error("[study-api] list notes failed", error.code ?? "unknown");
+    return json({ error: "Non è stato possibile caricare le note." }, 500);
+  }
+  return json({ notes: data ?? [] });
+}
+
+async function saveNote(request: Request, userId: string) {
+  let body: Record<string, unknown>;
+  try {
+    body = await readJson(request, 220_000);
+  } catch (error) {
+    return json({ error: error instanceof Error && error.message === "REQUEST_TOO_LARGE"
+      ? "La nota supera il limite consentito." : "Dati della nota non validi." }, 400);
+  }
+
+  const workspaceId = body.workspace_id;
+  const noteId = body.note_id;
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  const content = typeof body.content === "string" ? body.content : "";
+
+  if (!isUuid(workspaceId)) return json({ error: "Notebook non valido." }, 400);
+  if (noteId !== undefined && !isUuid(noteId)) return json({ error: "Nota non valida." }, 400);
+  if (title.length < 1 || title.length > 160) {
+    return json({ error: "Il titolo deve contenere da 1 a 160 caratteri." }, 400);
+  }
+  if (content.length > MAX_NOTE_CONTENT_CHARS) {
+    return json({ error: "La nota supera il limite di 50.000 caratteri." }, 413);
+  }
+
+  const { data: workspace, error: workspaceError } = await studyAdmin
+    .from("study_workspaces")
+    .select("id")
+    .eq("id", workspaceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (workspaceError || !workspace) return json({ error: "Notebook non trovato." }, 404);
+
+  const fields = {
+    title,
+    content,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (typeof noteId === "string") {
+    const { data, error } = await studyAdmin
+      .from("study_notes")
+      .update(fields)
+      .eq("id", noteId)
+      .eq("workspace_id", workspaceId)
+      .eq("user_id", userId)
+      .select(NOTE_SELECT)
+      .maybeSingle();
+
+    if (error) {
+      console.error("[study-api] update note failed", error.code ?? "unknown");
+      return json({ error: "Non è stato possibile salvare la nota." }, 500);
+    }
+    if (!data) return json({ error: "Nota non trovata." }, 404);
+    return json({ note: data });
+  }
+
+  const { data, error } = await studyAdmin
+    .from("study_notes")
+    .insert({
+      workspace_id: workspaceId,
+      user_id: userId,
+      ...fields,
+    })
+    .select(NOTE_SELECT)
+    .single();
+
+  if (error || !data) {
+    console.error("[study-api] create note failed", error?.code ?? "unknown");
+    return json({ error: "Non è stato possibile creare la nota." }, 500);
+  }
+  return json({ note: data }, 201);
+}
+
+async function deleteNote(request: Request, userId: string) {
+  let body: Record<string, unknown>;
+  try {
+    body = await readJson(request, 8_192);
+  } catch {
+    return json({ error: "Richiesta non valida." }, 400);
+  }
+
+  const noteId = body.note_id;
+  if (!isUuid(noteId)) return json({ error: "Nota non valida." }, 400);
+
+  const { data, error } = await studyAdmin
+    .from("study_notes")
+    .delete()
+    .eq("id", noteId)
+    .eq("user_id", userId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[study-api] delete note failed", error.code ?? "unknown");
+    return json({ error: "Non è stato possibile eliminare la nota." }, 500);
+  }
+  if (!data) return json({ error: "Nota non trovata." }, 404);
+  return json({ deleted: true });
+}
+
+
 function normalizePageForChunking(value: string) {
   return value
     .replace(/\u0000/g, "")
@@ -798,6 +930,9 @@ Deno.serve(async (request: Request) => {
     return await deleteWorkspace(request, user.id);
   }
 
+  if (route === "notes" && request.method === "GET") return await listNotes(request, user.id);
+  if (route === "notes" && request.method === "POST") return await saveNote(request, user.id);
+  if (route === "notes" && request.method === "DELETE") return await deleteNote(request, user.id);
   if (route === "sources" && request.method === "GET") return await listSources(request, user.id);
   if (route === "sources/chunk" && request.method === "POST") return await chunkSource(request, user.id);
   if (route === "sources" && request.method === "POST") return await createSource(request, user.id);

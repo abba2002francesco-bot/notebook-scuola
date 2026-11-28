@@ -55,6 +55,24 @@ type Source = {
   processed_at: string | null;
 };
 
+type StudyNote = {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  title: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type NoteEditor = {
+  id: string | null;
+  title: string;
+  content: string;
+  originalTitle: string;
+  originalContent: string;
+};
+
 function formatFileSize(value: number) {
   if (value < 1024 * 1024) return Math.max(1, Math.round(value / 1024)) + " KB";
   return (value / (1024 * 1024)).toFixed(1) + " MB";
@@ -89,6 +107,11 @@ export default function StudioClient() {
   const [chunkingId, setChunkingId] = useState<string | null>(null);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [mobilePanel, setMobilePanel] = useState<"sources" | "tools" | null>(null);
+  const [notes, setNotes] = useState<StudyNote[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteDeleting, setNoteDeleting] = useState(false);
+  const [editingNote, setEditingNote] = useState<NoteEditor | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const getAccessToken = useCallback(async () => {
@@ -143,6 +166,25 @@ export default function StudioClient() {
     }
   }, [getAccessToken]);
 
+
+  const loadNotes = useCallback(async (workspaceId: string) => {
+    setNotesLoading(true);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("/api/studio/notes?workspace_id=" + encodeURIComponent(workspaceId), {
+        headers: { Authorization: "Bearer " + token },
+        cache: "no-store",
+      });
+      const result = await response.json().catch(() => ({})) as { notes?: StudyNote[]; error?: string };
+      if (!response.ok) throw new Error(result.error || "Non è stato possibile caricare le note.");
+      setNotes(result.notes ?? []);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Errore durante il caricamento delle note.");
+    } finally {
+      setNotesLoading(false);
+    }
+  }, [getAccessToken]);
+
   useEffect(() => {
     if (loading) return;
     if (!user) {
@@ -155,10 +197,13 @@ export default function StudioClient() {
   useEffect(() => {
     if (!selectedWorkspaceId || !user || loading) {
       setSources([]);
+      setNotes([]);
+      setEditingNote(null);
       return;
     }
     void loadSources(selectedWorkspaceId);
-  }, [selectedWorkspaceId, user, loading, loadSources]);
+    void loadNotes(selectedWorkspaceId);
+  }, [selectedWorkspaceId, user, loading, loadSources, loadNotes]);
 
   async function createWorkspace(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -225,6 +270,8 @@ export default function StudioClient() {
       if (selectedWorkspaceId === workspace.id) {
         setSelectedWorkspaceId(null);
         setSources([]);
+        setNotes([]);
+        setEditingNote(null);
       }
       setSuccess("Notebook eliminato.");
     } catch (caught) {
@@ -410,9 +457,127 @@ export default function StudioClient() {
     setSelectedWorkspaceId(null);
     setSelectedSourceIds([]);
     setSources([]);
+    setNotes([]);
+    setEditingNote(null);
     setMobilePanel(null);
     setError("");
     setSuccess("");
+  }
+
+  function startNewNote() {
+    setEditingNote({
+      id: null,
+      title: "",
+      content: "",
+      originalTitle: "",
+      originalContent: "",
+    });
+  }
+
+  function openNote(note: StudyNote) {
+    setEditingNote({
+      id: note.id,
+      title: note.title,
+      content: note.content,
+      originalTitle: note.title,
+      originalContent: note.content,
+    });
+  }
+
+  function closeNoteEditor() {
+    if (!editingNote) return;
+    const dirty = editingNote.title !== editingNote.originalTitle ||
+      editingNote.content !== editingNote.originalContent;
+    if (dirty && !window.confirm("Ci sono modifiche non salvate. Vuoi chiudere senza salvarle?")) return;
+    setEditingNote(null);
+  }
+
+  async function saveNote() {
+    if (!editingNote || !selectedWorkspaceId) return;
+    const cleanTitle = editingNote.title.trim();
+    if (!cleanTitle) {
+      setError("Inserisci un titolo per la nota.");
+      return;
+    }
+    if (editingNote.content.length > 50_000) {
+      setError("La nota supera il limite di 50.000 caratteri.");
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+    setNoteSaving(true);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("/api/studio/notes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({
+          workspace_id: selectedWorkspaceId,
+          ...(editingNote.id ? { note_id: editingNote.id } : {}),
+          title: cleanTitle,
+          content: editingNote.content,
+        }),
+      });
+      const result = await response.json().catch(() => ({})) as { note?: StudyNote; error?: string };
+      if (!response.ok || !result.note) {
+        throw new Error(result.error || "Non è stato possibile salvare la nota.");
+      }
+
+      const savedNote = result.note;
+      setNotes((current) => [
+        savedNote,
+        ...current.filter((item) => item.id !== savedNote.id),
+      ].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at)));
+      setEditingNote({
+        id: savedNote.id,
+        title: savedNote.title,
+        content: savedNote.content,
+        originalTitle: savedNote.title,
+        originalContent: savedNote.content,
+      });
+      setSuccess("Nota salvata in questo notebook.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Salvataggio della nota non riuscito.");
+    } finally {
+      setNoteSaving(false);
+    }
+  }
+
+  async function deleteNote() {
+    if (!editingNote?.id) {
+      setEditingNote(null);
+      return;
+    }
+    const confirmed = window.confirm("Vuoi eliminare definitivamente questa nota?");
+    if (!confirmed) return;
+
+    setError("");
+    setSuccess("");
+    setNoteDeleting(true);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("/api/studio/notes", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({ note_id: editingNote.id }),
+      });
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Non è stato possibile eliminare la nota.");
+      setNotes((current) => current.filter((note) => note.id !== editingNote.id));
+      setEditingNote(null);
+      setSuccess("Nota eliminata.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Eliminazione della nota non riuscita.");
+    } finally {
+      setNoteDeleting(false);
+    }
   }
 
   if (loading || (user && listLoading && workspaces.length === 0)) {
@@ -747,6 +912,34 @@ export default function StudioClient() {
             </div>
           </div>
 
+
+          <div className="studio-tool-section studio-notes-section">
+            <div className="studio-tool-section-title">
+              <span>LE TUE NOTE</span>
+              <span>{notes.length}</span>
+            </div>
+            <button type="button" className="studio-create-note-button" onClick={startNewNote}>
+              <Plus size={15} /> Crea una nota
+            </button>
+            {notesLoading ? (
+              <div className="studio-notes-loading"><LoaderCircle size={15} /> Caricamento note…</div>
+            ) : notes.length === 0 ? (
+              <div className="studio-notes-empty">
+                <StickyNote size={19} />
+                <span>Gli appunti che scriverai qui resteranno salvati in questo notebook.</span>
+              </div>
+            ) : (
+              <div className="studio-notes-list">
+                {notes.map((note) => (
+                  <button type="button" className="studio-note-card" key={note.id} onClick={() => openNote(note)}>
+                    <strong>{note.title}</strong>
+                    <span>{note.content.trim() ? note.content.trim() : "Nota vuota"}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="studio-custom-tools-note">
             <div className="studio-custom-tools-icon"><Sparkles size={17} /></div>
             <strong>Comandi personalizzati</strong>
@@ -756,7 +949,61 @@ export default function StudioClient() {
         </aside>
       </div>
 
-      <input id="studio-hidden-search" className="studio-hidden-search" aria-hidden="true" tabIndex={-1} />
+
+      {editingNote && (
+        <div className="studio-note-modal-backdrop">
+          <section className="studio-note-modal" role="dialog" aria-modal="true" aria-labelledby="studio-note-modal-title">
+            <div className="studio-note-modal-header">
+              <div>
+                <span className="studio-kicker">APPUNTI DEL NOTEBOOK</span>
+                <h2 id="studio-note-modal-title">{editingNote.id ? "Modifica nota" : "Nuova nota"}</h2>
+              </div>
+              <button type="button" className="icon-button" aria-label="Chiudi nota" onClick={closeNoteEditor}><X size={17} /></button>
+            </div>
+            <div className="studio-note-editor">
+              <label htmlFor="studio-note-title">Titolo</label>
+              <input
+                id="studio-note-title"
+                type="text"
+                maxLength={160}
+                placeholder="Dai un titolo ai tuoi appunti"
+                value={editingNote.title}
+                onChange={(event) => setEditingNote((current) => current ? { ...current, title: event.target.value } : current)}
+              />
+              <div className="studio-note-content-heading">
+                <label htmlFor="studio-note-content">Contenuto</label>
+                <span>{editingNote.content.length.toLocaleString("it-IT")} / 50.000</span>
+              </div>
+              <textarea
+                id="studio-note-content"
+                rows={14}
+                maxLength={50_000}
+                placeholder="Scrivi qui appunti, formule, idee o passaggi da ricordare…"
+                value={editingNote.content}
+                onChange={(event) => setEditingNote((current) => current ? { ...current, content: event.target.value } : current)}
+              />
+              <p>Le note vengono salvate in questo notebook e non sono inviate a servizi AI.</p>
+            </div>
+            <div className="studio-note-modal-actions">
+              {editingNote.id && (
+                <button type="button" className="button button-danger" disabled={noteDeleting || noteSaving} onClick={() => void deleteNote()}>
+                  {noteDeleting ? <LoaderCircle size={15} /> : <Trash2 size={15} />}
+                  Elimina
+                </button>
+              )}
+              <div>
+                <button type="button" className="button button-secondary" disabled={noteSaving || noteDeleting} onClick={closeNoteEditor}>Chiudi</button>
+                <button type="button" className="button button-primary" disabled={noteSaving || noteDeleting || !editingNote.title.trim()} onClick={() => void saveNote()}>
+                  {noteSaving ? <LoaderCircle size={15} /> : <Check size={15} />}
+                  {noteSaving ? "Salvataggio…" : "Salva nota"}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+            <input id="studio-hidden-search" className="studio-hidden-search" aria-hidden="true" tabIndex={-1} />
     </div>
   );
 }
