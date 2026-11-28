@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import { ArrowLeft, BookOpen, LoaderCircle, Plus, Trash2 } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ArrowLeft, BookOpen, FileText, LoaderCircle, Plus, Trash2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { supabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
+import { STUDY_SUPABASE_URL, STUDY_SUPABASE_PUBLISHABLE_KEY } from "@/lib/study-api";
 
 type Workspace = {
   id: string;
@@ -25,6 +27,44 @@ const SUBJECTS = [
 
 const LEVELS = ["Medie", "Superiori", "Università", "Altro"];
 
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const SOURCE_BUCKET = "study-source-files";
+const MIME_BY_EXTENSION: Record<string, string> = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
+
+const studyStorageClient = createClient(STUDY_SUPABASE_URL, STUDY_SUPABASE_PUBLISHABLE_KEY, {
+  auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+});
+
+type Source = {
+  id: string;
+  workspace_id: string;
+  original_filename: string;
+  mime_type: string;
+  byte_size: number;
+  status: "uploaded" | "processing" | "extracted" | "ready" | "failed";
+  page_count: number | null;
+  extracted_char_count: number;
+  failure_code: string | null;
+  created_at: string;
+  processed_at: string | null;
+};
+
+function formatFileSize(value: number) {
+  if (value < 1024 * 1024) return Math.max(1, Math.round(value / 1024)) + " KB";
+  return (value / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function sourceStatusLabel(source: Source) {
+  if (source.status === "extracted" || source.status === "ready") return "Testo estratto";
+  if (source.status === "processing") return "Elaborazione";
+  if (source.status === "failed") return "Da riprovare";
+  return "Caricato";
+}
+
 export default function StudioClient() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -39,6 +79,12 @@ export default function StudioClient() {
   const [level, setLevel] = useState("Superiori");
   const [description, setDescription] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadStage, setUploadStage] = useState("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const getAccessToken = useCallback(async () => {
     if (!supabase) throw new Error("Supabase non è configurato.");
@@ -71,6 +117,25 @@ export default function StudioClient() {
     }
   }, [getAccessToken]);
 
+  const loadSources = useCallback(async (workspaceId: string) => {
+    setSourcesLoading(true);
+    setError("");
+    try {
+      const token = await getAccessToken();
+      const response = await fetch("/api/studio/sources?workspace_id=" + encodeURIComponent(workspaceId), {
+        headers: { Authorization: "Bearer " + token },
+        cache: "no-store",
+      });
+      const result = await response.json().catch(() => ({})) as { sources?: Source[]; error?: string };
+      if (!response.ok) throw new Error(result.error || "Non è stato possibile caricare i documenti.");
+      setSources(result.sources ?? []);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Errore durante il caricamento dei documenti.");
+    } finally {
+      setSourcesLoading(false);
+    }
+  }, [getAccessToken]);
+
   useEffect(() => {
     if (loading) return;
     if (!user) {
@@ -79,6 +144,14 @@ export default function StudioClient() {
     }
     void loadWorkspaces();
   }, [loading, user, router, loadWorkspaces]);
+
+  useEffect(() => {
+    if (!selectedWorkspaceId || !user || loading) {
+      setSources([]);
+      return;
+    }
+    void loadSources(selectedWorkspaceId);
+  }, [selectedWorkspaceId, user, loading, loadSources]);
 
   async function createWorkspace(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -108,6 +181,7 @@ export default function StudioClient() {
         throw new Error(result.error || "Non è stato possibile creare il notebook.");
       }
       setWorkspaces((current) => [result.workspace!, ...current]);
+      setSelectedWorkspaceId(result.workspace!.id);
       setTitle("");
       setSubject("Matematica");
       setLevel("Superiori");
@@ -141,6 +215,10 @@ export default function StudioClient() {
       const result = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(result.error || "Eliminazione non riuscita.");
       setWorkspaces((current) => current.filter((item) => item.id !== workspace.id));
+      if (selectedWorkspaceId === workspace.id) {
+        setSelectedWorkspaceId(null);
+        setSources([]);
+      }
       setSuccess("Notebook eliminato.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Eliminazione non riuscita.");
