@@ -56,6 +56,7 @@ create table public.study_sources (
   user_id uuid not null references auth.users(id) on delete cascade,
   original_filename text not null,
   storage_path text not null unique,
+  -- Il path deve essere strettamente namespaced per proprietario/workspace/fonte.
   mime_type text not null,
   byte_size bigint not null,
   sha256_hex text,
@@ -66,6 +67,8 @@ create table public.study_sources (
   created_at timestamptz not null default now(),
   processed_at timestamptz,
   upload_expires_at timestamptz not null default (now() + interval '20 minutes'),
+  constraint study_sources_storage_path_owner_scope
+    check (storage_path like user_id::text || '/' || workspace_id::text || '/' || id::text || '/%'),
   constraint study_sources_workspace_owner_fkey
     foreign key (workspace_id, user_id)
     references public.study_workspaces (id, user_id) on delete cascade,
@@ -105,7 +108,7 @@ create table public.study_source_chunks (
   page_end integer,
   embedding extensions.vector not null,
   embedding_dimensions smallint not null default 1024,
-  embedding_model text not null default 'mistral-embed',
+  embedding_model text not null default 'mistral/mistral-embed',
   created_at timestamptz not null default now(),
   constraint study_chunks_source_owner_fkey
     foreign key (source_id, workspace_id, user_id)
@@ -233,6 +236,8 @@ create policy "Users read own study usage events"
   on public.study_usage_events for select to authenticated
   using ((select auth.uid()) = user_id);
 
+grant usage on schema extensions to authenticated, service_role;
+
 grant select on
   public.study_workspaces,
   public.study_sources,
@@ -267,7 +272,7 @@ create or replace function public.match_study_source_chunks(
   p_query_embedding extensions.vector,
   p_match_count integer default 8,
   p_min_similarity double precision default 0.20,
-  p_embedding_model text default 'mistral-embed'
+  p_embedding_model text default 'mistral/mistral-embed'
 )
 returns table (
   chunk_id uuid,
@@ -338,6 +343,11 @@ begin
     where id = 'study-source-files'
       and public is false
       and file_size_limit = 20971520
+      and allowed_mime_types @> array[
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+      ]
   ) then
     raise exception 'Il bucket study-source-files esiste già o non è configurato come previsto. Verificare manualmente prima di procedere.';
   end if;
