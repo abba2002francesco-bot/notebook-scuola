@@ -243,6 +243,10 @@ create policy "Users read own study sources"
   on public.study_sources for select to authenticated
   using ((select auth.uid()) = user_id);
 
+create policy "Service role manages extracted pages"
+  on public.study_source_pages for all to service_role
+  using (true) with check (true);
+
 create policy "Users read own study source chunks"
   on public.study_source_chunks for select to authenticated
   using ((select auth.uid()) = user_id);
