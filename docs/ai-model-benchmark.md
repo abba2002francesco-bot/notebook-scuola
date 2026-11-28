@@ -132,3 +132,12 @@ La complessità multi-modello verrà introdotta solo dopo un benchmark: per la p
 | B — Gemini 3.1 Flash Lite (Vertex EU) | — | — | — | — | — | Non testato |
 | C — Gemini 2.5 Flash Lite (Vertex EU) | — | — | — | — | — | Non testato |
 
+
+
+## Stato esecuzione — 28 novembre 2026
+
+**Mistral Small 4 non è ancora stato valutato.** È stato identificato sul catalogo Vercel AI Gateway con l'ID `mistral/mistral-small`, ma il primo tentativo di chiamata è stato respinto dal Gateway con HTTP 403: il team Vercel richiede una carta di pagamento registrata per sbloccare anche i crediti gratuiti.
+
+La risposta del Gateway è arrivata prima dell'inferenza: nessun output del modello, nessun token conteggiato e nessuna prova di qualità completata. Non si deve interpretare questo blocco come un risultato negativo del modello. Non sono state effettuate ulteriori richieste dopo il 403.
+
+Per completare il test occorre sbloccare l'accesso AI Gateway sul team Vercel, oppure usare una chiave Mistral API fornita e autorizzata dal titolare del progetto. Le prove previste sono le quattro categorie elencate sopra; il punteggio rimane `Non testato` fino a quando saranno ottenute risposte reali.
