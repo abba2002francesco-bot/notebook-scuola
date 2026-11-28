@@ -141,3 +141,17 @@ La complessità multi-modello verrà introdotta solo dopo un benchmark: per la p
 La risposta del Gateway è arrivata prima dell'inferenza: nessun output del modello, nessun token conteggiato e nessuna prova di qualità completata. Non si deve interpretare questo blocco come un risultato negativo del modello. Non sono state effettuate ulteriori richieste dopo il 403.
 
 Per completare il test occorre sbloccare l'accesso AI Gateway sul team Vercel, oppure usare una chiave Mistral API fornita e autorizzata dal titolare del progetto. Le prove previste sono le quattro categorie elencate sopra; il punteggio rimane `Non testato` fino a quando saranno ottenute risposte reali.
+
+
+## Alternative per un test senza attivare API a pagamento
+
+La documentazione Mistral aggiornata distingue:
+- **Free mode**: include un budget mensile per provare Vibe e Studio, ma non include accesso API;
+- **API**: per creare chiavi e inviare richieste via API bisogna attivare la fatturazione/pay-as-you-go.
+
+Fonti ufficiali:
+- https://docs.mistral.ai/admin/billing-usage/usage-limits
+- https://docs.mistral.ai/resources/cookbooks/quickstart
+- Playground Studio: https://console.mistral.ai/build/playground
+
+Quindi il test manuale nel Playground può essere tentato senza abilitare l'API; il benchmark automatico della nostra applicazione richiede invece un endpoint API e un metodo di fatturazione attivo. È importante non confondere una prova manuale nel Playground con un test di integrazione end-to-end.
