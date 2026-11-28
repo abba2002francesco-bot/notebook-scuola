@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, BookOpen, FileText, Layers, LoaderCircle, Plus, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, FileQuestion, FileText, Image, Layers, LoaderCircle, Map, Menu, MessageCircle, Mic, Plus, Presentation, Search, Send, Sparkles, StickyNote, Trash2, Upload, Video, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { supabase } from "@/lib/supabase";
@@ -87,6 +87,8 @@ export default function StudioClient() {
   const [uploading, setUploading] = useState(false);
   const [uploadStage, setUploadStage] = useState("");
   const [chunkingId, setChunkingId] = useState<string | null>(null);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [mobilePanel, setMobilePanel] = useState<"sources" | "tools" | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const getAccessToken = useCallback(async () => {
@@ -131,7 +133,9 @@ export default function StudioClient() {
       });
       const result = await response.json().catch(() => ({})) as { sources?: Source[]; error?: string };
       if (!response.ok) throw new Error(result.error || "Non è stato possibile caricare i documenti.");
-      setSources(result.sources ?? []);
+      const nextSources = result.sources ?? [];
+      setSources(nextSources);
+      setSelectedSourceIds((current) => current.filter((id) => nextSources.some((source) => source.id === id)));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Errore durante il caricamento dei documenti.");
     } finally {
@@ -390,6 +394,26 @@ export default function StudioClient() {
   }
 
   const selectedWorkspace = workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null;
+  const selectedSourcesCount = selectedSourceIds.length;
+  const chunkedSourcesCount = sources.filter((source) => source.chunk_count > 0).length;
+  const readySourcesCount = sources.filter((source) => source.status === "extracted" || source.status === "ready").length;
+
+  function openWorkspace(workspaceId: string) {
+    setSelectedSourceIds([]);
+    setMobilePanel(null);
+    setError("");
+    setSuccess("");
+    setSelectedWorkspaceId(workspaceId);
+  }
+
+  function closeWorkspace() {
+    setSelectedWorkspaceId(null);
+    setSelectedSourceIds([]);
+    setSources([]);
+    setMobilePanel(null);
+    setError("");
+    setSuccess("");
+  }
 
   if (loading || (user && listLoading && workspaces.length === 0)) {
     return <div className="container page"><div className="loading">Caricamento area studio…</div></div>;
@@ -399,260 +423,340 @@ export default function StudioClient() {
     return <div className="container page"><div className="loading">Reindirizzamento all'accesso…</div></div>;
   }
 
-  return (
-    <div className="container page">
-      <div className="breadcrumb">
-        <Link href="/">Esplora</Link><span>›</span><span>Il mio spazio di studio</span>
-      </div>
-
-      <section className="panel form-panel">
-        <div className="form-heading">
-          <span className="eyebrow"><BookOpen size={14} /> Area personale · Beta privata</span>
-          <h1>Il tuo spazio di studio.</h1>
-          <p>Crea un notebook personale per raccogliere le tue fonti e prepararti a studiare con l'assistente AI. In questa prima versione stiamo attivando le fondamenta: gestione dei notebook, poi documenti e chat.</p>
+  if (!selectedWorkspace) {
+    return (
+      <div className="studio-page studio-home">
+        <div className="studio-home-header">
+          <div>
+            <span className="studio-kicker"><BookOpen size={15} /> NOTEBOOK SCUOLA · STUDIO</span>
+            <h1>Il tuo spazio di studio.</h1>
+            <p>Un ambiente personale per raccogliere le fonti e costruire il tuo metodo di studio.</p>
+          </div>
+          <div className="studio-home-header-actions">
+            <Link href="/" className="button button-secondary"><ArrowLeft size={15} /> Catalogo</Link>
+            <button type="button" className="button button-primary" onClick={() => { setShowCreateForm((value) => !value); setError(""); setSuccess(""); }}>
+              <Plus size={16} /> Nuovo notebook
+            </button>
+          </div>
         </div>
 
-        <div className="form-actions" style={{ justifyContent: "space-between", marginTop: 0 }}>
-          <div className="notice" style={{ margin: 0 }}>Nella beta puoi creare fino a 5 notebook personali.</div>
-          <button type="button" className="button button-primary" onClick={() => { setShowCreateForm((value) => !value); setError(""); }}>
-            <Plus size={16} /> Nuovo notebook
-          </button>
+        <div className="studio-home-notice">
+          <Sparkles size={17} />
+          <span>La beta privata consente fino a 5 notebook personali. La chat AI e gli strumenti di generazione saranno attivati dopo il collaudo del modello e dei costi.</span>
         </div>
+
+        {error && <div className="alert alert-error" role="alert">{error}</div>}
+        {success && <div className="alert alert-success" role="status">{success}</div>}
 
         {showCreateForm && (
-          <form onSubmit={createWorkspace} style={{ marginTop: 24 }}>
-            <div className="field full">
-              <label htmlFor="study-title">Nome del notebook *</label>
-              <input
-                id="study-title"
-                required
-                minLength={1}
-                maxLength={120}
-                placeholder="Es. Analisi matematica — esame"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-              />
-            </div>
-            <div className="form-grid">
-              <div className="field">
-                <label htmlFor="study-subject">Materia</label>
-                <select id="study-subject" value={subject} onChange={(event) => setSubject(event.target.value)}>
-                  {SUBJECTS.map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
+          <section className="panel studio-create-panel">
+            <div className="studio-section-heading">
+              <div>
+                <span className="studio-kicker">NUOVO SPAZIO</span>
+                <h2>Crea un notebook</h2>
               </div>
-              <div className="field">
-                <label htmlFor="study-level">Livello</label>
-                <select id="study-level" value={level} onChange={(event) => setLevel(event.target.value)}>
-                  {LEVELS.map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
+              <button type="button" className="icon-button" aria-label="Chiudi il modulo" onClick={() => setShowCreateForm(false)}><X size={17} /></button>
+            </div>
+            <form onSubmit={createWorkspace} className="studio-create-form">
+              <div className="field full">
+                <label htmlFor="study-title">Nome del notebook *</label>
+                <input id="study-title" required minLength={1} maxLength={120} placeholder="Es. Analisi matematica — esame" value={title} onChange={(event) => setTitle(event.target.value)} />
               </div>
-            </div>
-            <div className="field full">
-              <label htmlFor="study-description">Descrizione (facoltativa)</label>
-              <textarea
-                id="study-description"
-                maxLength={1200}
-                rows={3}
-                placeholder="Quali argomenti vuoi studiare?"
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-              />
-            </div>
-            <div className="form-actions">
-              <button type="button" className="button button-secondary" onClick={() => setShowCreateForm(false)}>Annulla</button>
-              <button type="submit" className="button button-primary" disabled={saving}>
-                {saving ? <LoaderCircle size={16} /> : <Plus size={16} />}
-                {saving ? "Creazione…" : "Crea notebook"}
-              </button>
-            </div>
-          </form>
+              <div className="form-grid">
+                <div className="field">
+                  <label htmlFor="study-subject">Materia</label>
+                  <select id="study-subject" value={subject} onChange={(event) => setSubject(event.target.value)}>
+                    {SUBJECTS.map((item) => <option key={item} value={item}>{item}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="study-level">Livello</label>
+                  <select id="study-level" value={level} onChange={(event) => setLevel(event.target.value)}>
+                    {LEVELS.map((item) => <option key={item} value={item}>{item}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="field full">
+                <label htmlFor="study-description">Descrizione (facoltativa)</label>
+                <textarea id="study-description" maxLength={1200} rows={3} placeholder="Quali argomenti vuoi studiare?" value={description} onChange={(event) => setDescription(event.target.value)} />
+              </div>
+              <div className="form-actions">
+                <button type="button" className="button button-secondary" onClick={() => setShowCreateForm(false)}>Annulla</button>
+                <button type="submit" className="button button-primary" disabled={saving}>
+                  {saving ? <LoaderCircle size={16} /> : <Plus size={16} />}
+                  {saving ? "Creazione…" : "Crea notebook"}
+                </button>
+              </div>
+            </form>
+          </section>
         )}
 
-        {error && <div className="alert alert-error" role="alert" style={{ marginTop: 18 }}>{error}</div>}
-        {success && <div className="alert alert-success" role="status" style={{ marginTop: 18 }}>{success}</div>}
+        <div className="studio-home-list-heading">
+          <div>
+            <span className="studio-kicker">I TUOI CONTENUTI</span>
+            <h2>Notebook personali</h2>
+          </div>
+          <span className="studio-home-count">{workspaces.length} / 5</span>
+        </div>
 
-        <div style={{ marginTop: 28 }}>
-          <div className="section-heading">
+        {listLoading ? (
+          <div className="loading">Aggiornamento elenco…</div>
+        ) : workspaces.length === 0 ? (
+          <div className="studio-home-empty">
+            <div className="studio-home-empty-icon"><BookOpen size={26} /></div>
+            <h3>Il primo notebook parte da qui</h3>
+            <p>Crea uno spazio personale e aggiungi i materiali che vuoi usare per studiare.</p>
+            {!showCreateForm && <button type="button" className="button button-primary" onClick={() => setShowCreateForm(true)}><Plus size={16} /> Crea il primo notebook</button>}
+          </div>
+        ) : (
+          <div className="studio-home-grid">
+            {workspaces.map((workspace) => (
+              <article className="panel studio-home-card" key={workspace.id}>
+                <div className="studio-home-card-top">
+                  <span className="studio-subject-pill">{workspace.subject || "Materia non impostata"}</span>
+                  <button type="button" className="icon-button" aria-label={"Elimina " + workspace.title} title="Elimina notebook" disabled={deletingId === workspace.id} onClick={() => void deleteWorkspace(workspace)}>
+                    {deletingId === workspace.id ? <LoaderCircle size={16} /> : <Trash2 size={16} />}
+                  </button>
+                </div>
+                <h3>{workspace.title}</h3>
+                <p>{workspace.description || "Spazio personale pronto per le tue fonti di studio."}</p>
+                <div className="studio-home-card-meta">
+                  <span>{workspace.education_level || "Livello non impostato"}</span>
+                  <span>{new Date(workspace.created_at).toLocaleDateString("it-IT")}</span>
+                </div>
+                <button type="button" className="button button-primary studio-open-button" onClick={() => openWorkspace(workspace.id)}>
+                  Apri spazio <ArrowLeft size={15} className="studio-arrow-forward" />
+                </button>
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="studio-page studio-workspace-page">
+      <div className="studio-workspace-topbar">
+        <div className="studio-brand">
+          <Link href="/" className="studio-brand-mark" aria-label="Torna a Notebook Scuola"><BookOpen size={19} /></Link>
+          <div className="studio-brand-copy">
+            <span>NOTEBOOK SCUOLA</span>
+            <strong>Studio</strong>
+          </div>
+        </div>
+
+        <div className="studio-current-notebook">
+          <span className="studio-current-subject">{selectedWorkspace.subject || "Studio personale"}</span>
+          <strong>{selectedWorkspace.title}</strong>
+          <span className="studio-current-level">{selectedWorkspace.education_level || "Notebook personale"}</span>
+        </div>
+
+        <div className="studio-topbar-actions">
+          <button type="button" className="studio-topbar-button studio-mobile-only" onClick={() => setMobilePanel("sources")} aria-label="Apri pannello fonti">
+            <Menu size={17} /><span>Fonti</span>
+          </button>
+          <button type="button" className="studio-topbar-button studio-mobile-only" onClick={() => setMobilePanel("tools")} aria-label="Apri pannello Studio">
+            <Sparkles size={17} /><span>Studio</span>
+          </button>
+          <button type="button" className="studio-back-button" onClick={closeWorkspace}><ArrowLeft size={15} /><span>Tutti i notebook</span></button>
+        </div>
+      </div>
+
+      {(error || success) && (
+        <div className="studio-flash-messages">
+          {error && <div className="alert alert-error" role="alert">{error}</div>}
+          {success && <div className="alert alert-success" role="status">{success}</div>}
+        </div>
+      )}
+
+      {mobilePanel && <button type="button" className="studio-drawer-backdrop" aria-label="Chiudi il pannello" onClick={() => setMobilePanel(null)} />}
+
+      <div className="studio-three-panel-layout">
+        <aside className={"studio-side-panel studio-sources-panel" + (mobilePanel === "sources" ? " is-open" : "")} aria-label="Pannello delle fonti">
+          <div className="studio-panel-heading">
             <div>
-              <span className="eyebrow">I tuoi contenuti</span>
-              <h2 style={{ marginBottom: 0 }}>Notebook personali</h2>
+              <span className="studio-kicker">LIBRERIA</span>
+              <h2>Fonti</h2>
+              <p>{sources.length} documenti nel notebook</p>
             </div>
-            <span className="count-pill">{workspaces.length}/5</span>
+            <button type="button" className="studio-mobile-close" aria-label="Chiudi fonti" onClick={() => setMobilePanel(null)}><X size={17} /></button>
           </div>
 
-          {listLoading ? (
-            <div className="loading">Aggiornamento elenco…</div>
-          ) : workspaces.length === 0 ? (
-            <div className="empty-state" style={{ marginTop: 16 }}>
-              <BookOpen size={28} />
-              <h3>Ancora nessun notebook</h3>
-              <p>Crea il primo spazio personale. In seguito potrai aggiungere documenti, porre domande e generare strumenti di studio.</p>
+          <button type="button" className="studio-add-source" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+            {uploading ? <LoaderCircle size={17} /> : <Plus size={17} />}
+            <span>{uploading ? "Caricamento…" : "Aggiungi fonte"}</span>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.docx,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            hidden
+            disabled={uploading}
+            onChange={(event) => {
+              const selectedFile = event.target.files?.[0];
+              if (selectedFile) void uploadSource(selectedFile);
+            }}
+          />
+
+          {uploading && (
+            <div className="studio-upload-progress" role="status">
+              <LoaderCircle size={15} /> <span>{uploadStage || "Elaborazione del documento…"}</span>
+            </div>
+          )}
+
+          <div className="studio-source-toolbar">
+            <div className="studio-source-toolbar-title">
+              <span>DOCUMENTI</span>
+              <span>{sources.length}</span>
+            </div>
+            <div className="studio-source-toolbar-hint">Seleziona le fonti da usare nella chat</div>
+          </div>
+
+          {sourcesLoading ? (
+            <div className="studio-panel-loading"><LoaderCircle size={17} /> Caricamento fonti…</div>
+          ) : sources.length === 0 ? (
+            <div className="studio-source-empty">
+              <FileText size={23} />
+              <strong>Qui compariranno i tuoi documenti</strong>
+              <p>Carica PDF, Word o PowerPoint. I file restano privati nel tuo spazio.</p>
             </div>
           ) : (
-            <div className="notebook-grid" style={{ marginTop: 18 }}>
-              {workspaces.map((workspace) => (
-                <article className="panel notebook-card" key={workspace.id}>
-                  <div className="notebook-card-top">
-                    <span className="eyebrow">{workspace.subject || "Materia non impostata"}</span>
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label={`Elimina ${workspace.title}`}
-                      title="Elimina notebook"
-                      disabled={deletingId === workspace.id}
-                      onClick={() => void deleteWorkspace(workspace)}
-                    >
-                      {deletingId === workspace.id ? <LoaderCircle size={16} /> : <Trash2 size={16} />}
-                    </button>
-                  </div>
-                  <h3>{workspace.title}</h3>
-                  <p>{workspace.description || "Spazio personale pronto per le tue fonti di studio."}</p>
-                  <div className="notebook-card-meta">
-                    <span>{workspace.education_level || "Livello non impostato"}</span>
-                    <span>{new Date(workspace.created_at).toLocaleDateString("it-IT")}</span>
-                  </div>
-                  <div className="notebook-card-actions">
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      onClick={() => setSelectedWorkspaceId(workspace.id)}
-                    >
-                      <FileText size={15} /> Gestisci fonti
-                    </button>
-                  </div>
-                </article>
-              ))}
+            <div className="studio-source-list">
+              {sources.map((source) => {
+                const selectable = source.status === "extracted" || source.status === "ready";
+                const isSelected = selectedSourceIds.includes(source.id);
+                return (
+                  <article className={"studio-source-card" + (isSelected ? " is-selected" : "")} key={source.id}>
+                    <div className="studio-source-card-main">
+                      <label className="studio-source-select">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          disabled={!selectable}
+                          onChange={(event) => setSelectedSourceIds((current) => event.target.checked ? [...current, source.id] : current.filter((id) => id !== source.id))}
+                        />
+                        <span className="studio-source-checkmark"><Check size={12} /></span>
+                        <span className="studio-source-file-icon"><FileText size={17} /></span>
+                      </label>
+                      <div className="studio-source-details">
+                        <strong title={source.original_filename}>{source.original_filename}</strong>
+                        <span>{formatFileSize(Number(source.byte_size))} · {source.page_count ? (source.mime_type === MIME_BY_EXTENSION.pptx ? source.page_count + " diapositive" : source.page_count + " pagine") : "Pagine n.d."}</span>
+                        <div className={"studio-source-status studio-source-status-" + source.status}>{sourceStatusLabel(source)}</div>
+                        {source.chunk_count > 0 && <small>{source.chunk_count} segmenti preparati</small>}
+                      </div>
+                      <button type="button" className="studio-source-delete" title="Elimina documento" aria-label={"Elimina " + source.original_filename} onClick={() => void deleteSource(source)}><Trash2 size={14} /></button>
+                    </div>
+                    {source.failure_code === "no_text_content" && <p className="studio-source-warning">Non è stato trovato testo selezionabile. I PDF scansionati richiederanno OCR.</p>}
+                    {source.status === "extracted" && (
+                      <button type="button" className="studio-chunk-button" disabled={chunkingId !== null} onClick={() => void prepareSourceChunks(source)}>
+                        {chunkingId === source.id ? <LoaderCircle size={13} /> : <Layers size={13} />}
+                        {chunkingId === source.id ? "Preparazione…" : source.chunk_count > 0 ? "Rigenera segmenti" : "Prepara segmenti"}
+                      </button>
+                    )}
+                  </article>
+                );
+              })}
             </div>
           )}
 
-          {selectedWorkspace && (
-            <section className="source-manager" aria-labelledby="study-sources-title">
-              <div className="source-manager-heading">
-                <div>
-                  <span className="eyebrow">Fonti del notebook</span>
-                  <h2 id="study-sources-title">{selectedWorkspace.title}</h2>
-                  <p>Carica PDF, Word o PowerPoint. I documenti restano privati e vengono trasformati in testo consultabile per la fase AI successiva.</p>
-                </div>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label="Chiudi gestione fonti"
-                  title="Chiudi"
-                  onClick={() => { setSelectedWorkspaceId(null); setSources([]); setError(""); setSuccess(""); }}
-                >
-                  ×
-                </button>
+          <div className="studio-sources-footer">
+            <div><strong>{selectedSourcesCount}</strong><span>fonti selezionate</span></div>
+            <div><strong>{chunkedSourcesCount}</strong><span>con segmenti</span></div>
+          </div>
+        </aside>
+
+        <section className="studio-chat-panel" aria-label="Chat di studio">
+          <div className="studio-chat-header">
+            <div className="studio-chat-heading-icon"><MessageCircle size={18} /></div>
+            <div>
+              <span className="studio-kicker">ASSISTENTE DI STUDIO</span>
+              <h1>Chat</h1>
+            </div>
+            <span className="studio-coming-status"><span /> In attivazione</span>
+          </div>
+
+          <div className="studio-chat-content">
+            <div className="studio-chat-welcome">
+              <div className="studio-chat-orb"><Sparkles size={25} /></div>
+              <span className="studio-kicker">IL TUO SPAZIO, LE TUE FONTI</span>
+              <h2>Studia con le tue fonti.<br />Al tuo ritmo.</h2>
+              <p>Stiamo costruendo un assistente che risponda partendo dai documenti che scegli, distingua ciò che è scritto nelle fonti dalle conoscenze esterne e mostri i riferimenti utili.</p>
+              <div className="studio-chat-metrics">
+                <div><strong>{sources.length}</strong><span>fonti caricate</span></div>
+                <div><strong>{selectedSourcesCount}</strong><span>fonti selezionate</span></div>
+                <div><strong>{chunkedSourcesCount}</strong><span>fonti segmentate</span></div>
               </div>
+            </div>
 
-              <div className="source-toolbar">
-                <div className="notice" style={{ margin: 0 }}>
-                  Massimo 20 MB per file · 25 file · 100 MB per notebook
-                </div>
-                <button
-                  type="button"
-                  className="button button-primary"
-                  disabled={uploading}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {uploading ? <LoaderCircle size={16} /> : <Upload size={16} />}
-                  {uploading ? "Caricamento…" : "Carica documento"}
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf,.docx,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                  hidden
-                  disabled={uploading}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) void uploadSource(file);
-                  }}
-                />
+            <div className="studio-chat-next">
+              <div className="studio-chat-next-icon"><BookOpen size={18} /></div>
+              <div>
+                <strong>La chat con le fonti sarà il prossimo modulo</strong>
+                <p>Prima completeremo la memoria delle conversazioni, la ricerca nei segmenti e le citazioni pagina per pagina. In questo momento non viene inviata alcuna richiesta a un modello AI.</p>
               </div>
+            </div>
 
-              {uploading && (
-                <div className="source-progress" role="status">
-                  <LoaderCircle size={16} /> {uploadStage || "Elaborazione del documento…"}
-                </div>
-              )}
+            <div className="studio-suggested-prompts">
+              <span className="studio-kicker">ESEMPI DI ATTIVITÀ</span>
+              <div>
+                <span>Spiegami un concetto passo per passo</span>
+                <span>Fammi un riepilogo fedele alle fonti</span>
+                <span>Preparami alcune domande di verifica</span>
+              </div>
+            </div>
+          </div>
 
-              {sourcesLoading ? (
-                <div className="loading">Caricamento documenti…</div>
-              ) : sources.length === 0 ? (
-                <div className="empty-state source-empty">
-                  <FileText size={26} />
-                  <h3>Nessuna fonte ancora</h3>
-                  <p>Carica il primo PDF, DOCX o PPTX per iniziare a costruire la raccolta di studio.</p>
-                </div>
-              ) : (
-                <div className="source-list">
-                  {sources.map((source) => (
-                    <article className="source-row" key={source.id}>
-                      <div className="source-icon"><FileText size={20} /></div>
-                      <div className="source-main">
-                        <strong>{source.original_filename}</strong>
-                        <div className="source-meta">
-                          <span>{formatFileSize(Number(source.byte_size))}</span>
-                          <span>
-                            {source.page_count
-                              ? (source.mime_type === MIME_BY_EXTENSION.pptx
-                                ? source.page_count + " diapositive"
-                                : source.page_count + " pagine")
-                              : "Paginazione non disponibile"}
-                          </span>
-                          {source.extracted_char_count > 0 && (
-                            <span>{Number(source.extracted_char_count).toLocaleString("it-IT")} caratteri estratti</span>
-                          )}
-                          {source.chunk_count > 0 && (
-                            <span>{source.chunk_count} segmenti pronti</span>
-                          )}
-                        </div>
-                        {source.failure_code === "no_text_content" && (
-                          <p className="source-warning">Non è stato trovato testo selezionabile. I PDF scansionati richiederanno OCR.</p>
-                        )}
-                        {source.status === "extracted" && (
-                          <div style={{ marginTop: 10 }}>
-                            <button
-                              type="button"
-                              className="button button-secondary"
-                              style={{ padding: "6px 10px", fontSize: "0.82rem" }}
-                              disabled={chunkingId !== null}
-                              onClick={() => void prepareSourceChunks(source)}
-                            >
-                              {chunkingId === source.id ? <LoaderCircle size={14} /> : <Layers size={14} />}
-                              {chunkingId === source.id
-                                ? "Preparazione…"
-                                : source.chunk_count > 0 ? "Rigenera segmenti" : "Prepara segmenti"}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      <span className={"source-status source-status-" + source.status}>{sourceStatusLabel(source)}</span>
-                      <button
-                        type="button"
-                        className="icon-button"
-                        title="Elimina documento"
-                        aria-label={"Elimina " + source.original_filename}
-                        onClick={() => void deleteSource(source)}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              )}
+          <div className="studio-composer">
+            <div className="studio-composer-field">
+              <textarea disabled rows={1} aria-label="Messaggio per l'assistente" placeholder="La chat sarà disponibile in una prossima fase…" />
+              <button type="button" disabled aria-label="Invia messaggio"><Send size={17} /></button>
+            </div>
+            <p>Assistente non ancora attivo · Nessuna chiamata AI o costo durante questa fase</p>
+          </div>
+        </section>
 
-              <p className="source-next-step">
-                Gli embedding, la ricerca semantica e la chat AI saranno attivati dopo la scelta e il collaudo del modello. In questa fase la segmentazione non effettua chiamate AI.
-              </p>
-            </section>
-          )}
-        </div>
-      </section>
+        <aside className={"studio-side-panel studio-tools-panel" + (mobilePanel === "tools" ? " is-open" : "")} aria-label="Pannello strumenti Studio">
+          <div className="studio-panel-heading">
+            <div>
+              <span className="studio-kicker">CREA E RIPASSA</span>
+              <h2><Sparkles size={18} /> Studio</h2>
+              <p>Strumenti per trasformare le tue fonti.</p>
+            </div>
+            <button type="button" className="studio-mobile-close" aria-label="Chiudi strumenti" onClick={() => setMobilePanel(null)}><X size={17} /></button>
+          </div>
 
-      <div className="form-actions" style={{ justifyContent: "flex-start" }}>
-        <Link href="/" className="button button-secondary"><ArrowLeft size={15} /> Torna al catalogo</Link>
+          <div className="studio-tool-section">
+            <div className="studio-tool-section-title"><span>STRUMENTI PRINCIPALI</span><span>6</span></div>
+            <div className="studio-tool-grid">
+              <div className="studio-tool-card"><div className="studio-tool-icon"><FileText size={18} /></div><strong>Riassunto</strong><span>In arrivo</span></div>
+              <div className="studio-tool-card"><div className="studio-tool-icon"><FileQuestion size={18} /></div><strong>Quiz</strong><span>In arrivo</span></div>
+              <div className="studio-tool-card"><div className="studio-tool-icon"><Layers size={18} /></div><strong>Flashcard</strong><span>In arrivo</span></div>
+              <div className="studio-tool-card"><div className="studio-tool-icon"><Presentation size={18} /></div><strong>Presentazione</strong><span>In arrivo</span></div>
+              <div className="studio-tool-card"><div className="studio-tool-icon"><Map size={18} /></div><strong>Mappa concettuale</strong><span>In arrivo</span></div>
+              <div className="studio-tool-card"><div className="studio-tool-icon"><StickyNote size={18} /></div><strong>Report</strong><span>In arrivo</span></div>
+            </div>
+          </div>
+
+          <div className="studio-tool-section">
+            <div className="studio-tool-section-title"><span>ALTRI FORMATI</span><span>3</span></div>
+            <div className="studio-tool-secondary">
+              <div><Mic size={16} /><span>Audio</span><em>In arrivo</em></div>
+              <div><Image size={16} /><span>Infografica</span><em>In arrivo</em></div>
+              <div><Video size={16} /><span>Video</span><em>In arrivo</em></div>
+            </div>
+          </div>
+
+          <div className="studio-custom-tools-note">
+            <div className="studio-custom-tools-icon"><Sparkles size={17} /></div>
+            <strong>Comandi personalizzati</strong>
+            <p>Stiamo progettando una galleria di comandi predefiniti e la possibilità di crearne di tuoi, senza eseguire codice arbitrario.</p>
+            <span>Prossima fase</span>
+          </div>
+        </aside>
       </div>
+
+      <input id="studio-hidden-search" className="studio-hidden-search" aria-hidden="true" tabIndex={-1} />
     </div>
   );
 }
